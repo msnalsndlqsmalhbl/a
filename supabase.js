@@ -6,8 +6,8 @@
 'use strict';
 
 /* ─────────────── إعداد الاتصال ─────────────── */
-const SUPABASE_URL = 'https://YOUR_PROJECT.supabase.co';
-const SUPABASE_ANON_KEY = 'YOUR_ANON_KEY_HERE';
+const SUPABASE_URL = 'https://xejrpjunlgbwkfrklmha.supabase.co';
+const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhlanJwanVubGdid2tmcmtsbWhhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODkzMDY5OTcsImV4cCI6MjEwNDg4Mjk5N30.iFSQDLEVlAV_-sXhPGdo15Li3vGECoFrinWI6OVGRj4';
 
 let sb = null;
 try {
