@@ -1444,3 +1444,15 @@ body.light-mode .discount-row { background: rgba(245, 158, 11, 0.1); }
     padding-top: env(safe-area-inset-top);
   }
 }
+/* ✅ علامة السالب - RTL Fix */
+span[style*="direction:ltr"],
+.money-value {
+  direction: ltr !important;
+  unicode-bidi: embed !important;
+  display: inline-block;
+}
+
+/* ✅ الأرقام في الجداول */
+table td {
+  unicode-bidi: plaintext;
+}
