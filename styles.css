@@ -3,7 +3,6 @@
    styles.css - التصميم الكامل
    ═══════════════════════════════════════════════════════════════ */
 
-/* ─────────── المتغيرات ─────────── */
 :root {
   --primary-1: #1e3a8a;
   --primary-2: #3b82f6;
@@ -30,6 +29,7 @@
   --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.15);
   --shadow: 0 8px 24px rgba(0, 0, 0, 0.25);
   --shadow-lg: 0 16px 48px rgba(0, 0, 0, 0.35);
+  --shadow-glow: 0 0 32px rgba(59, 130, 246, 0.25);
 
   --radius-sm: 8px;
   --radius: 16px;
@@ -44,7 +44,6 @@
   --topbar-h: 72px;
 }
 
-/* ─────────── إعادة تعيين ─────────── */
 * {
   margin: 0;
   padding: 0;
@@ -69,7 +68,7 @@ body {
   background-attachment: fixed;
 }
 
-/* ─────────── Scrollbar ─────────── */
+/* ─────────── شريط التمرير ─────────── */
 ::-webkit-scrollbar { width: 10px; height: 10px; }
 ::-webkit-scrollbar-track { background: rgba(255, 255, 255, 0.03); }
 ::-webkit-scrollbar-thumb {
@@ -414,6 +413,17 @@ select option {
   border-radius: 3px;
 }
 .nav-item svg { flex-shrink: 0; }
+.nav-item .nav-badge {
+  margin-right: auto;
+  background: var(--danger);
+  color: white;
+  font-size: 10px;
+  font-weight: 700;
+  padding: 2px 7px;
+  border-radius: 10px;
+  min-width: 20px;
+  text-align: center;
+}
 
 .sidebar-footer { padding: 16px; border-top: 1px solid var(--border); }
 .user-card {
@@ -590,10 +600,9 @@ select option {
 }
 .card-title svg { color: var(--primary-2); }
 
-/* ✅ KPI محسّن */
 .kpi-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
   gap: 16px;
   margin-bottom: 24px;
 }
@@ -604,15 +613,14 @@ select option {
   -webkit-backdrop-filter: blur(20px);
   border: 1px solid var(--border);
   border-radius: var(--radius);
-  padding: 16px;
+  padding: 18px;
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 14px;
   transition: all var(--t);
   position: relative;
   overflow: hidden;
   cursor: pointer;
-  min-width: 0;
 }
 .kpi-card::after {
   content: '';
@@ -630,8 +638,8 @@ select option {
 .kpi-card:hover::after { transform: scaleX(1); }
 
 .kpi-icon {
-  width: 50px;
-  height: 50px;
+  width: 52px;
+  height: 52px;
   border-radius: 14px;
   display: flex;
   align-items: center;
@@ -645,33 +653,9 @@ select option {
 .kpi-icon.purple { background: rgba(139, 92, 246, 0.15); color: #8b5cf6; }
 .kpi-icon.cyan { background: rgba(6, 182, 212, 0.15); color: #06b6d4; }
 
-.kpi-info {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-}
-.kpi-label {
-  font-size: 11.5px;
-  color: var(--text-3);
-  font-weight: 600;
-  margin-bottom: 4px;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.kpi-value {
-  font-size: 16px;
-  font-weight: 800;
-  color: var(--text);
-  white-space: nowrap;
-  overflow: visible;
-  text-overflow: clip;
-  direction: ltr;
-  unicode-bidi: embed;
-  word-break: keep-all;
-  letter-spacing: -0.3px;
-  line-height: 1.2;
-}
+.kpi-info { flex: 1; min-width: 0; }
+.kpi-label { font-size: 12px; color: var(--text-3); font-weight: 600; margin-bottom: 4px; }
+.kpi-value { font-size: 20px; font-weight: 800; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
 /* ═══════════════════════════════════════════════════════════════
    Tables
@@ -697,7 +681,6 @@ table td {
   padding: 12px 16px;
   color: var(--text-2);
   border-bottom: 1px solid rgba(255, 255, 255, 0.04);
-  unicode-bidi: plaintext;
 }
 table tbody tr { transition: background var(--t-fast); }
 table tbody tr:hover { background: rgba(255, 255, 255, 0.03); }
@@ -794,7 +777,7 @@ table .text-warning { color: var(--warning); font-weight: 700; }
 }
 
 /* ═══════════════════════════════════════════════════════════════
-   Confirm Dialog
+   Confirm
    ═══════════════════════════════════════════════════════════════ */
 .confirm-dialog {
   background: var(--bg-2);
@@ -900,6 +883,7 @@ table .text-warning { color: var(--warning); font-weight: 700; }
   border-radius: var(--radius);
 }
 .skeleton-card { height: 100px; min-height: 120px; }
+.skeleton-row { height: 48px; margin-bottom: 8px; border-radius: 8px; }
 @keyframes shimmer {
   0% { background-position: 200% 0; }
   100% { background-position: -200% 0; }
@@ -928,7 +912,10 @@ table .text-warning { color: var(--warning); font-weight: 700; }
   display: flex;
   flex-direction: column;
 }
-@keyframes slideUpSheet { from { transform: translateY(100%); } to { transform: translateY(0); } }
+@keyframes slideUpSheet {
+  from { transform: translateY(100%); }
+  to { transform: translateY(0); }
+}
 .sheet-handle {
   width: 44px;
   height: 4px;
@@ -1108,182 +1095,6 @@ table .text-warning { color: var(--warning); font-weight: 700; }
 }
 
 /* ═══════════════════════════════════════════════════════════════
-   Online Status Badge + PWA
-   ═══════════════════════════════════════════════════════════════ */
-.online-badge {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 6px 12px;
-  border-radius: 20px;
-  font-size: 11.5px;
-  font-weight: 700;
-  transition: all 0.2s;
-  cursor: default;
-}
-.online-badge.online {
-  background: rgba(16, 185, 129, 0.12);
-  border: 1px solid rgba(16, 185, 129, 0.3);
-  color: #34d399;
-}
-.online-badge.offline {
-  background: rgba(239, 68, 68, 0.12);
-  border: 1px solid rgba(239, 68, 68, 0.3);
-  color: #f87171;
-}
-.online-dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: currentColor;
-  animation: pulse-online 2s ease-in-out infinite;
-}
-@keyframes pulse-online {
-  0%, 100% { opacity: 1; transform: scale(1); }
-  50% { opacity: 0.5; transform: scale(0.85); }
-}
-
-#install-btn {
-  background: linear-gradient(135deg, #10b981, #059669) !important;
-  color: white !important;
-  border: none !important;
-  animation: pulse-install 2s ease-in-out infinite;
-}
-@keyframes pulse-install {
-  0%, 100% { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.5); }
-  50% { box-shadow: 0 0 0 8px rgba(16, 185, 129, 0); }
-}
-@media (display-mode: standalone) {
-  .topbar { padding-top: env(safe-area-inset-top); }
-}
-
-/* ═══════════════════════════════════════════════════════════════
-   Backup Section
-   ═══════════════════════════════════════════════════════════════ */
-.backup-section {
-  border-color: rgba(6, 182, 212, 0.3);
-  background: rgba(6, 182, 212, 0.05);
-}
-.backup-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-  gap: 16px;
-  margin-top: 16px;
-}
-.backup-card {
-  padding: 20px;
-  background: rgba(255, 255, 255, 0.03);
-  border: 1px solid var(--border);
-  border-radius: 14px;
-  text-align: center;
-  transition: all 0.2s;
-  cursor: pointer;
-}
-.backup-card:hover {
-  background: rgba(255, 255, 255, 0.06);
-  border-color: var(--border-strong);
-  transform: translateY(-2px);
-}
-.backup-icon {
-  width: 56px;
-  height: 56px;
-  margin: 0 auto 12px;
-  border-radius: 16px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 28px;
-}
-.backup-icon.cyan { background: rgba(6, 182, 212, 0.15); }
-.backup-icon.green { background: rgba(16, 185, 129, 0.15); }
-.backup-icon.gold { background: rgba(245, 158, 11, 0.15); }
-.backup-title { font-size: 14px; font-weight: 800; color: var(--text); margin-bottom: 6px; }
-.backup-desc { font-size: 12px; color: var(--text-3); line-height: 1.5; }
-
-.backup-progress {
-  margin-top: 20px;
-  padding: 16px;
-  background: rgba(59, 130, 246, 0.08);
-  border-radius: 12px;
-  display: none;
-}
-.backup-progress.active { display: block; }
-.backup-progress-bar {
-  height: 6px;
-  background: rgba(255, 255, 255, 0.08);
-  border-radius: 6px;
-  overflow: hidden;
-  margin-top: 10px;
-}
-.backup-progress-fill {
-  height: 100%;
-  width: 0%;
-  background: linear-gradient(90deg, var(--primary-2), var(--accent));
-  border-radius: 6px;
-  transition: width 0.3s ease;
-}
-.backup-progress-text {
-  font-size: 12.5px;
-  color: var(--text-2);
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-}
-
-.import-dropzone {
-  padding: 30px;
-  border: 2px dashed var(--border-strong);
-  border-radius: 14px;
-  text-align: center;
-  cursor: pointer;
-  transition: all 0.2s;
-  margin-top: 12px;
-}
-.import-dropzone:hover,
-.import-dropzone.dragover {
-  background: rgba(59, 130, 246, 0.08);
-  border-color: var(--primary-2);
-}
-.import-dropzone-icon {
-  font-size: 40px;
-  color: var(--text-3);
-  margin-bottom: 12px;
-}
-
-/* ═══════════════════════════════════════════════════════════════
-   ✅ Money Colors & RTL Fix
-   ═══════════════════════════════════════════════════════════════ */
-.money-value,
-.currency-value,
-span[style*="direction:ltr"] {
-  direction: ltr !important;
-  unicode-bidi: embed !important;
-  display: inline-block;
-}
-
-.cell-currency {
-  direction: ltr;
-  unicode-bidi: embed;
-  display: inline-block;
-}
-
-/* الأرقام السالبة */
-.text-negative {
-  color: var(--danger) !important;
-  font-weight: 700;
-  direction: ltr;
-  unicode-bidi: embed;
-}
-
-/* الأرقام الموجبة */
-.text-positive {
-  color: var(--success) !important;
-  font-weight: 700;
-  direction: ltr;
-  unicode-bidi: embed;
-}
-
-/* ═══════════════════════════════════════════════════════════════
    Responsive
    ═══════════════════════════════════════════════════════════════ */
 @media (max-width: 1024px) {
@@ -1292,6 +1103,15 @@ span[style*="direction:ltr"] {
   .sidebar-header { justify-content: center; padding: 16px 8px; }
   .nav-item { justify-content: center; padding: 12px; }
   .nav-item span { display: none; }
+  .nav-item .nav-badge {
+    position: absolute;
+    top: 4px;
+    left: 4px;
+    margin: 0;
+    font-size: 9px;
+    padding: 1px 5px;
+    min-width: 16px;
+  }
   .sidebar-footer { padding: 8px; }
   .user-card { justify-content: center; padding: 6px; }
   .logout-btn { display: none; }
@@ -1315,13 +1135,14 @@ span[style*="direction:ltr"] {
   .topbar { padding: 0 16px; }
   .topbar-title h1 { font-size: 17px; }
   .topbar-title span { display: none; }
+  .topbar-actions .icon-btn:nth-child(3) { display: none; }
 
   .content { padding: 16px; }
   .kpi-grid { grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 10px; }
-  .kpi-card { padding: 12px; gap: 10px; }
-  .kpi-icon { width: 42px; height: 42px; border-radius: 12px; }
-  .kpi-value { font-size: 13px; }
-  .kpi-label { font-size: 10.5px; }
+  .kpi-card { padding: 14px; gap: 10px; }
+  .kpi-icon { width: 44px; height: 44px; border-radius: 12px; }
+  .kpi-value { font-size: 16px; }
+  .kpi-label { font-size: 11px; }
 
   .modal { max-width: 100%; max-height: 92vh; margin: 0; }
   .modal-header { padding: 16px 18px; }
@@ -1338,9 +1159,14 @@ span[style*="direction:ltr"] {
   .filter-bar { padding: 12px; }
   .filter-bar .input-group { min-width: 100%; }
 
-  .sale-item-row { grid-template-columns: 1fr 1fr; gap: 8px; }
+  .sale-item-row {
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+  }
   .sale-item-row > div:nth-child(1),
-  .sale-item-row > div:nth-child(5) { grid-column: 1 / -1; }
+  .sale-item-row > div:nth-child(5) {
+    grid-column: 1 / -1;
+  }
 
   table.responsive,
   table.responsive thead,
@@ -1377,7 +1203,7 @@ span[style*="direction:ltr"] {
 
 @media (max-width: 400px) {
   .kpi-grid { grid-template-columns: 1fr 1fr; }
-  .kpi-value { font-size: 12px; }
+  .kpi-value { font-size: 14px; }
   .btn { padding: 10px 14px; font-size: 13px; }
   .sale-item-row { grid-template-columns: 1fr; }
 }
@@ -1434,4 +1260,199 @@ body.light-mode .discount-row { background: rgba(245, 158, 11, 0.1); }
   table td { color: #333; }
   .kpi-card { background: white; border: 1px solid #ddd; }
   .kpi-value, .kpi-label { color: black; }
+}
+/* ═══════════════════════════════════════════════════════════════
+   النسخ الاحتياطي والاستعادة
+   ═══════════════════════════════════════════════════════════════ */
+
+.backup-section {
+  border-color: rgba(6, 182, 212, 0.3);
+  background: rgba(6, 182, 212, 0.05);
+}
+
+.backup-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 16px;
+  margin-top: 16px;
+}
+
+.backup-card {
+  padding: 20px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  text-align: center;
+  transition: all 0.2s;
+  cursor: pointer;
+}
+
+.backup-card:hover {
+  background: rgba(255, 255, 255, 0.06);
+  border-color: var(--border-strong);
+  transform: translateY(-2px);
+}
+
+.backup-icon {
+  width: 56px;
+  height: 56px;
+  margin: 0 auto 12px;
+  border-radius: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 28px;
+}
+
+.backup-icon.cyan { background: rgba(6, 182, 212, 0.15); }
+.backup-icon.green { background: rgba(16, 185, 129, 0.15); }
+.backup-icon.gold { background: rgba(245, 158, 11, 0.15); }
+
+.backup-title {
+  font-size: 14px;
+  font-weight: 800;
+  color: var(--text);
+  margin-bottom: 6px;
+}
+
+.backup-desc {
+  font-size: 12px;
+  color: var(--text-3);
+  line-height: 1.5;
+}
+
+/* شريط التقدم */
+.backup-progress {
+  margin-top: 20px;
+  padding: 16px;
+  background: rgba(59, 130, 246, 0.08);
+  border-radius: 12px;
+  display: none;
+}
+
+.backup-progress.active { display: block; }
+
+.backup-progress-bar {
+  height: 6px;
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 6px;
+  overflow: hidden;
+  margin-top: 10px;
+}
+
+.backup-progress-fill {
+  height: 100%;
+  width: 0%;
+  background: linear-gradient(90deg, var(--primary-2), var(--accent));
+  border-radius: 6px;
+  transition: width 0.3s ease;
+}
+
+.backup-progress-text {
+  font-size: 12.5px;
+  color: var(--text-2);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+/* Drop zone للاستيراد */
+.import-dropzone {
+  padding: 30px;
+  border: 2px dashed var(--border-strong);
+  border-radius: 14px;
+  text-align: center;
+  cursor: pointer;
+  transition: all 0.2s;
+  margin-top: 12px;
+}
+
+.import-dropzone:hover,
+.import-dropzone.dragover {
+  background: rgba(59, 130, 246, 0.08);
+  border-color: var(--primary-2);
+}
+
+.import-dropzone-icon {
+  font-size: 40px;
+  color: var(--text-3);
+  margin-bottom: 12px;
+}
+/* ═══════════════════════════════════════════════════════════════
+   Online Status Badge + PWA
+   ═══════════════════════════════════════════════════════════════ */
+
+.online-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border-radius: 20px;
+  font-size: 11.5px;
+  font-weight: 700;
+  transition: all 0.2s;
+  cursor: default;
+}
+
+.online-badge.online {
+  background: rgba(16, 185, 129, 0.12);
+  border: 1px solid rgba(16, 185, 129, 0.3);
+  color: #34d399;
+}
+
+.online-badge.offline {
+  background: rgba(239, 68, 68, 0.12);
+  border: 1px solid rgba(239, 68, 68, 0.3);
+  color: #f87171;
+}
+
+.online-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: currentColor;
+  animation: pulse-online 2s ease-in-out infinite;
+}
+
+@keyframes pulse-online {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.5; transform: scale(0.85); }
+}
+
+/* إخفاء على الهاتف */
+@media (max-width: 768px) {
+  .online-badge .online-text { display: none; }
+  .online-badge { padding: 6px; }
+}
+
+/* مؤشر التثبيت */
+#install-btn {
+  background: linear-gradient(135deg, #10b981, #059669) !important;
+  color: white !important;
+  border: none !important;
+  animation: pulse-install 2s ease-in-out infinite;
+}
+
+@keyframes pulse-install {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.5); }
+  50% { box-shadow: 0 0 0 8px rgba(16, 185, 129, 0); }
+}
+
+/* PWA standalone: تعديلات خاصة */
+@media (display-mode: standalone) {
+  .topbar {
+    padding-top: env(safe-area-inset-top);
+  }
+}
+/* ✅ علامة السالب - RTL Fix */
+span[style*="direction:ltr"],
+.money-value {
+  direction: ltr !important;
+  unicode-bidi: embed !important;
+  display: inline-block;
+}
+
+/* ✅ الأرقام في الجداول */
+table td {
+  unicode-bidi: plaintext;
 }
