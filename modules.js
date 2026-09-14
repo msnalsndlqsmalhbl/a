@@ -352,7 +352,7 @@ async function loadSalesList() {
                 <td data-label="الإجمالي">${window.App.formatCurrency(s.total)}</td>
                 <td data-label="الخصم" class="${s.discount_amount > 0 ? 'text-warning' : ''}">${s.discount_amount > 0 ? window.App.formatCurrency(s.discount_amount) : '—'}</td>
                 <td data-label="المدفوع" class="text-success">${window.App.formatCurrency(Number(s.paid_cash) + Number(s.paid_bank))}</td>
-                <td data-label="المتبقي" class="${s.remaining > 0 ? 'text-danger' : ''}">${window.App.formatCurrency(s.remaining)}</td>
+                <td data-label="المتبقي" >${window.App.money(s.remaining)}</td>
                 <td data-label="طريقة الدفع">${paymentMethodLabel(s.payment_method)}</td>
                 <td data-label="الحالة">${statusBadge(s.status)}</td>
                 <td data-label="التاريخ">${window.App.formatDate(s.created_at)}</td>
@@ -1126,7 +1126,7 @@ async function loadCustomersList(search = '') {
                 <td data-label="الاسم"><strong>${window.App.escapeHtml(c.name)}</strong></td>
                 <td data-label="الهاتف">${window.App.escapeHtml(c.phone || '—')}</td>
                 <td data-label="العنوان">${window.App.escapeHtml(c.address || '—')}</td>
-                <td data-label="الرصيد" class="${c.balance > 0 ? 'text-danger' : 'text-success'}">${window.App.formatCurrency(c.balance)}</td>
+                <td data-label="الرصيد" >${window.App.money(c.balance)}</td>
                 <td data-label="إجراءات">
                   <div style="display:flex;gap:6px;flex-wrap:wrap;">
                     ${c.balance > 0 && window.App.hasPermission('customers', 'approve') ? `
