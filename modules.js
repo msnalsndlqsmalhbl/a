@@ -1,7 +1,7 @@
 /* ═══════════════════════════════════════════════════════════════
    نظام إدارة قسم الحبل - مصنع الصندل
    modules.js - Dashboard + Sales + Customers + Suppliers
-                + Warehouse + Treasury + Expenses
+                + Warehouse (مع موافقة) + Treasury + Expenses
    ═══════════════════════════════════════════════════════════════ */
 
 'use strict';
@@ -23,9 +23,10 @@ function kpiCard(label, value, icon, color) {
 
 function statusBadge(status) {
   const map = {
-    'pending': '<span class="badge badge-warning">معلّقة</span>',
+    'pending': '<span class="badge badge-warning">بانتظار المخزن</span>',
     'approved': '<span class="badge badge-success">معتمدة</span>',
     'cancelled': '<span class="badge badge-danger">ملغاة</span>',
+    'rejected': '<span class="badge badge-danger">مرفوضة</span>',
     'returned': '<span class="badge badge-info">مرتجعة</span>'
   };
   return map[status] || '<span class="badge badge-gray">—</span>';
@@ -74,7 +75,6 @@ async function renderDashboard(container) {
     container.innerHTML = '<div class="skeleton-wrap"><div class="skeleton skeleton-card"></div><div class="skeleton skeleton-card"></div><div class="skeleton skeleton-card"></div><div class="skeleton skeleton-card"></div></div>';
 
     const kpi = await window.SB.getDashboardKPIs();
-
     const { data: recentSales } = await window.SB.select('sales', {
       order: { column: 'created_at', ascending: false }, limit: 5
     });
@@ -291,9 +291,9 @@ async function renderSales(container) {
         <div class="input-group"><label>الحالة</label>
           <select id="sales-status">
             <option value="">الكل</option>
-            <option value="pending">معلّقة</option>
+            <option value="pending">بانتظار المخزن</option>
             <option value="approved">معتمدة</option>
-            <option value="cancelled">ملغاة</option>
+            <option value="rejected">مرفوضة</option>
           </select>
         </div>
         <button class="btn btn-ghost" id="sales-filter-btn">${window.App.icons.search} تصفية</button>
@@ -359,9 +359,6 @@ async function loadSalesList() {
                 <td data-label="إجراءات">
                   <div style="display:flex;gap:6px;flex-wrap:wrap;">
                     <button class="btn btn-sm btn-ghost" onclick="viewSaleDetails('${s.id}')" title="عرض">${window.App.icons.edit}</button>
-                    ${s.status === 'pending' && window.App.hasPermission('sales', 'approve') ? `
-                      <button class="btn btn-sm btn-success" onclick="approveSaleConfirm('${s.id}')" title="اعتماد">${window.App.icons.check}</button>
-                    ` : ''}
                     ${s.status === 'approved' ? `
                       <button class="btn btn-sm btn-warning" onclick="openReturnFromSale('${s.id}')" title="مرتجع">${window.App.icons.rotate}</button>
                     ` : ''}
@@ -462,12 +459,16 @@ async function openNewSaleModal() {
           <label>ملاحظات</label>
           <textarea id="sale-notes" rows="2" placeholder="ملاحظات إضافية..."></textarea>
         </div>
+
+        <div style="margin-top:16px;padding:12px;background:rgba(245,158,11,0.08);border-radius:10px;font-size:12px;color:var(--text-2);">
+          ℹ️ بعد الحفظ، سيتم إرسال الفاتورة لأمين المخزن للموافقة قبل الاعتماد النهائي.
+        </div>
       </div>
     `;
 
     const footerHtml = `
       <button class="btn btn-ghost" onclick="window.App.closeModal()">إلغاء</button>
-      <button class="btn btn-primary" id="save-sale-btn" data-client-uuid="${clientUuid}">${window.App.icons.check} حفظ واعتماد</button>
+      <button class="btn btn-primary" id="save-sale-btn" data-client-uuid="${clientUuid}">${window.App.icons.check} حفظ وإرسال للمخزن</button>
     `;
 
     window.App.openModal('فاتورة مبيعات جديدة', bodyHtml, footerHtml);
@@ -846,9 +847,13 @@ async function saveSale() {
     if (error) throw new Error(error);
 
     if (!sale.duplicate) {
-      const { error: apprErr } = await window.SB.approveSale(sale.id);
-      if (apprErr) throw new Error(apprErr);
-      window.App.showToast('تم حفظ واعتماد الفاتورة بنجاح', 'success');
+      // ✅ لا اعتماد مباشر — بانتظار موافقة المخزن
+      window.App.showToast(
+        'تم حفظ الفاتورة — بانتظار موافقة أمين المخزن',
+        'info',
+        'في انتظار الموافقة',
+        5000
+      );
     } else {
       window.App.showToast('الفاتورة محفوظة مسبقاً', 'info');
     }
@@ -861,18 +866,6 @@ async function saveSale() {
   } finally {
     unlock();
   }
-}
-
-async function approveSaleConfirm(saleId) {
-  const ok = await window.App.confirmDialog('هل تريد اعتماد هذه الفاتورة؟ سيتم خصم الكميات من المخزن', {
-    title: 'اعتماد فاتورة', type: 'info', okText: 'اعتماد'
-  });
-  if (!ok) return;
-
-  const { error } = await window.SB.approveSale(saleId);
-  if (error) { window.App.showToast(error, 'error'); return; }
-  window.App.showToast('تم اعتماد الفاتورة بنجاح', 'success');
-  await loadSalesList();
 }
 
 async function viewSaleDetails(saleId) {
@@ -903,6 +896,19 @@ async function viewSaleDetails(saleId) {
           <div><span style="color:var(--text-3);font-size:12px;">الحالة:</span><br>${statusBadge(sale.status)}</div>
           <div><span style="color:var(--text-3);font-size:12px;">طريقة الدفع:</span><br>${paymentMethodLabel(sale.payment_method)}</div>
         </div>
+
+        ${sale.status === 'rejected' && sale.warehouse_rejection_reason ? `
+          <div style="padding:14px;background:rgba(239,68,68,0.1);border:1px solid rgba(239,68,68,0.3);border-radius:10px;margin-bottom:16px;">
+            <div style="font-weight:700;color:var(--danger);margin-bottom:4px;">❌ سبب الرفض:</div>
+            <div style="color:var(--text-2);font-size:13px;">${window.App.escapeHtml(sale.warehouse_rejection_reason)}</div>
+          </div>
+        ` : ''}
+
+        ${sale.status === 'pending' ? `
+          <div style="padding:12px;background:rgba(245,158,11,0.1);border-radius:10px;margin-bottom:16px;text-align:center;">
+            <span class="badge badge-warning" style="font-size:12px;">⏳ بانتظار موافقة أمين المخزن</span>
+          </div>
+        ` : ''}
 
         <h4 style="font-size:14px;font-weight:700;margin:16px 0 8px;">المنتجات</h4>
         <div class="table-wrap" style="background:transparent;border:none;overflow:visible;">
@@ -980,7 +986,9 @@ async function viewSaleDetails(saleId) {
 
     const footerHtml = `
       <button class="btn btn-ghost" onclick="window.App.closeModal()">إغلاق</button>
-      <button class="btn btn-primary" onclick="printSingleInvoice()">${window.App.icons.print} طباعة الفاتورة</button>
+      ${sale.status === 'approved' ? `
+        <button class="btn btn-primary" onclick="printSingleInvoice()">${window.App.icons.print} طباعة الفاتورة</button>
+      ` : ''}
     `;
 
     window.App.openModal('تفاصيل الفاتورة', bodyHtml, footerHtml);
@@ -1030,7 +1038,6 @@ function printSingleInvoice() {
     `);
 
     printWindow.document.close();
-
     setTimeout(() => {
       printWindow.focus();
       printWindow.print();
@@ -1107,7 +1114,6 @@ async function loadCustomersList(search = '') {
     const { data: customers } = await window.SB.select('customers', opts);
 
     if (!listEl) return;
-
     if (!customers.length) { listEl.innerHTML = emptyState('لا يوجد عملاء'); return; }
 
     listEl.innerHTML = `
@@ -1458,7 +1464,6 @@ async function loadSuppliersList(search = '') {
     const { data: suppliers } = await window.SB.select('suppliers', opts);
 
     if (!listEl) return;
-
     if (!suppliers.length) { listEl.innerHTML = emptyState('لا يوجد موردين'); return; }
 
     listEl.innerHTML = `
@@ -1677,12 +1682,15 @@ async function exportSuppliersExcel() {
 }
 
 /* ═══════════════════════════════════════════════════════════════
-   الوحدة 5: المخزن
+   الوحدة 5: المخزن (مع موافقة مزدوجة)
    ═══════════════════════════════════════════════════════════════ */
 
 async function renderWarehouse(container) {
   try {
     if (!container) return;
+
+    const { data: pendingOrders } = await window.SB.getPendingWarehouseOrders();
+
     container.innerHTML = `
       <div class="page-header">
         <div class="page-header-info"><h2>المخزن</h2><p>المنتجات وحركات المخزون</p></div>
@@ -1696,6 +1704,60 @@ async function renderWarehouse(container) {
         </div>
       </div>
 
+      ${pendingOrders.length > 0 ? `
+        <div class="card" style="margin-bottom:20px;border-color:rgba(245,158,11,0.4);background:rgba(245,158,11,0.05);">
+          <div class="card-header">
+            <div class="card-title" style="color:var(--warning);">
+              ${window.App.icons.alert} طلبات صرف معلقة (${pendingOrders.length})
+            </div>
+          </div>
+          
+          <div id="pending-orders-list">
+            ${pendingOrders.map(order => `
+              <div class="pending-order-card" id="order-${order.id}" style="margin-bottom:12px;padding:16px;background:rgba(255,255,255,0.03);border:1px solid var(--border);border-radius:12px;">
+                <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:12px;margin-bottom:12px;">
+                  <div>
+                    <div style="font-weight:800;color:var(--accent);font-size:15px;">
+                      ${window.App.escapeHtml(order.invoice_number)}
+                    </div>
+                    <div style="color:var(--text-3);font-size:12px;margin-top:4px;">
+                      العميل: <strong>${window.App.escapeHtml(order.customers?.name || 'عميل نقدي')}</strong>
+                    </div>
+                    <div style="color:var(--text-3);font-size:11px;margin-top:2px;">
+                      ${window.App.formatDateTime(order.created_at)}
+                    </div>
+                  </div>
+                  <div style="text-align:left;">
+                    <div style="font-size:18px;font-weight:800;color:var(--text);">
+                      ${window.App.formatCurrency(order.total)}
+                    </div>
+                    <span class="badge badge-warning">بانتظار الموافقة</span>
+                  </div>
+                </div>
+
+                <div id="order-items-${order.id}" style="margin-bottom:12px;">
+                  <div style="text-align:center;color:var(--text-3);font-size:12px;padding:8px;">
+                    <span style="display:inline-block;animation:spin 1s linear infinite;">⏳</span> جاري تحميل المنتجات...
+                  </div>
+                </div>
+
+                <div style="display:flex;gap:8px;flex-wrap:wrap;">
+                  <button class="btn btn-success" onclick="openApproveWarehouseOrder('${order.id}', '${window.App.escapeHtml(order.invoice_number)}')">
+                    ${window.App.icons.check} موافقة
+                  </button>
+                  <button class="btn btn-danger" onclick="openRejectWarehouseOrder('${order.id}', '${window.App.escapeHtml(order.invoice_number)}')">
+                    ${window.App.icons.close} رفض
+                  </button>
+                  <button class="btn btn-ghost" onclick="viewSaleDetails('${order.id}')">
+                    عرض التفاصيل
+                  </button>
+                </div>
+              </div>
+            `).join('')}
+          </div>
+        </div>
+      ` : ''}
+
       <div class="kpi-grid" id="wh-kpis"></div>
 
       <div class="filter-bar">
@@ -1707,6 +1769,11 @@ async function renderWarehouse(container) {
 
     await Promise.all([loadWarehouseKPIs(), loadProductsList()]);
 
+    // تحميل بنود كل طلب
+    for (const order of pendingOrders) {
+      loadOrderItems(order.id);
+    }
+
     document.getElementById('add-product-btn')?.addEventListener('click', () => openProductModal());
     document.getElementById('wh-in-btn')?.addEventListener('click', openStockInModal);
     document.getElementById('wh-out-btn')?.addEventListener('click', openStockOutModal);
@@ -1715,6 +1782,161 @@ async function renderWarehouse(container) {
   } catch (err) {
     if (container) container.innerHTML = `<div class="empty-state"><h3>خطأ</h3><p>${window.App.escapeHtml(err.message)}</p></div>`;
   }
+}
+
+async function loadOrderItems(saleId) {
+  try {
+    const container = document.getElementById(`order-items-${saleId}`);
+    if (!container) return;
+
+    const { data: items } = await window.SB.select('sale_items', {
+      select: '*, products(name, unit, quantity)',
+      eq: { sale_id: saleId }
+    });
+
+    if (!items || items.length === 0) {
+      container.innerHTML = '<p style="color:var(--text-3);font-size:12px;">لا توجد بنود</p>';
+      return;
+    }
+
+    container.innerHTML = `
+      <div style="background:rgba(59,130,246,0.06);border-radius:10px;padding:10px;overflow-x:auto;">
+        <table style="width:100%;font-size:12px;">
+          <thead>
+            <tr style="color:var(--text-3);text-align:right;">
+              <th style="padding:6px;">المنتج</th>
+              <th style="padding:6px;">المطلوب</th>
+              <th style="padding:6px;">المتاح</th>
+              <th style="padding:6px;">الحالة</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${items.map(item => {
+              const available = Number(item.products?.quantity || 0);
+              const needed = Number(item.quantity);
+              const enough = available >= needed;
+              return `
+                <tr style="border-top:1px solid var(--border);">
+                  <td style="padding:6px;">${window.App.escapeHtml(item.products?.name || '—')}</td>
+                  <td style="padding:6px;"><strong>${needed}</strong> ${item.products?.unit || ''}</td>
+                  <td style="padding:6px;color:${enough ? 'var(--success)' : 'var(--danger)'};">
+                    ${available}
+                  </td>
+                  <td style="padding:6px;">
+                    ${enough 
+                      ? '<span class="badge badge-success" style="font-size:10px;">متوفر</span>' 
+                      : '<span class="badge badge-danger" style="font-size:10px;">غير كافٍ</span>'}
+                  </td>
+                </tr>
+              `;
+            }).join('')}
+          </tbody>
+        </table>
+      </div>
+    `;
+  } catch (err) {
+    console.error('loadOrderItems:', err);
+  }
+}
+
+async function openApproveWarehouseOrder(saleId, invoiceNumber) {
+  const bodyHtml = `
+    <div style="padding:16px;background:rgba(16,185,129,0.08);border-radius:12px;margin-bottom:16px;">
+      <div style="font-size:14px;color:var(--text-2);">
+        الموافقة على صرف الفاتورة:
+        <strong style="color:var(--success);font-size:16px;display:block;margin-top:4px;">
+          ${window.App.escapeHtml(invoiceNumber)}
+        </strong>
+      </div>
+    </div>
+
+    <div class="input-group">
+      <label>ملاحظات (اختياري)</label>
+      <textarea id="wh-approve-notes" rows="2" placeholder="ملاحظات إضافية..."></textarea>
+    </div>
+
+    <div style="padding:12px;background:rgba(245,158,11,0.08);border-radius:10px;font-size:12.5px;color:var(--text-2);">
+      ⚠️ بعد الموافقة سيتم خصم الكميات من المخزن مباشرة.
+    </div>
+  `;
+
+  window.App.openModal('موافقة على الصرف', bodyHtml, `
+    <button class="btn btn-ghost" onclick="window.App.closeModal()">إلغاء</button>
+    <button class="btn btn-success" id="confirm-wh-approve">${window.App.icons.check} موافقة واعتماد</button>
+  `);
+
+  document.getElementById('confirm-wh-approve').addEventListener('click', async (e) => {
+    const btn = e.currentTarget;
+    if (btn.dataset.processing === 'true') return;
+    const unlock = window.App.lockProcessing(btn, 'جاري الموافقة...');
+
+    try {
+      const notes = document.getElementById('wh-approve-notes').value.trim();
+
+      const { error: whErr } = await window.SB.approveWarehouseOrder(saleId, notes);
+      if (whErr) throw new Error(whErr);
+
+      const { error: apprErr } = await window.SB.approveSale(saleId);
+      if (apprErr) throw new Error(apprErr);
+
+      window.App.showToast('تمت الموافقة على الصرف واعتماد الفاتورة', 'success');
+      window.App.closeModal();
+      await renderWarehouse(document.getElementById('content'));
+    } catch (err) {
+      window.App.showToast(err.message, 'error');
+    } finally {
+      unlock();
+    }
+  });
+}
+
+async function openRejectWarehouseOrder(saleId, invoiceNumber) {
+  const bodyHtml = `
+    <div style="padding:16px;background:rgba(239,68,68,0.08);border-radius:12px;margin-bottom:16px;">
+      <div style="font-size:14px;color:var(--text-2);">
+        رفض صرف الفاتورة:
+        <strong style="color:var(--danger);font-size:16px;display:block;margin-top:4px;">
+          ${window.App.escapeHtml(invoiceNumber)}
+        </strong>
+      </div>
+    </div>
+
+    <div class="input-group">
+      <label>سبب الرفض *</label>
+      <textarea id="wh-reject-reason" rows="3" placeholder="مثال: الكمية غير متوفرة، المنتج محجوز..."></textarea>
+    </div>
+
+    <div style="padding:12px;background:rgba(239,68,68,0.08);border-radius:10px;font-size:12.5px;color:var(--text-2);">
+      ⚠️ سيتم إشعار الكاشير بسبب الرفض.
+    </div>
+  `;
+
+  window.App.openModal('رفض الصرف', bodyHtml, `
+    <button class="btn btn-ghost" onclick="window.App.closeModal()">إلغاء</button>
+    <button class="btn btn-danger" id="confirm-wh-reject">${window.App.icons.close} تأكيد الرفض</button>
+  `);
+
+  document.getElementById('confirm-wh-reject').addEventListener('click', async (e) => {
+    const btn = e.currentTarget;
+    if (btn.dataset.processing === 'true') return;
+    const unlock = window.App.lockProcessing(btn);
+
+    try {
+      const reason = document.getElementById('wh-reject-reason').value.trim();
+      if (!reason) throw new Error('سبب الرفض مطلوب');
+
+      const { error } = await window.SB.rejectWarehouseOrder(saleId, reason);
+      if (error) throw new Error(error);
+
+      window.App.showToast('تم رفض الفاتورة', 'success');
+      window.App.closeModal();
+      await renderWarehouse(document.getElementById('content'));
+    } catch (err) {
+      window.App.showToast(err.message, 'error');
+    } finally {
+      unlock();
+    }
+  });
 }
 
 async function loadWarehouseKPIs() {
@@ -1748,7 +1970,6 @@ async function loadProductsList(search = '') {
     const { data: products } = await window.SB.select('products', opts);
 
     if (!listEl) return;
-
     if (!products.length) { listEl.innerHTML = emptyState('لا توجد منتجات'); return; }
 
     listEl.innerHTML = `
@@ -2435,7 +2656,6 @@ async function loadExpensesList() {
     const total = data.reduce((s, e) => s + Number(e.amount), 0);
     const approved = data.filter(e => e.status === 'approved').reduce((s, e) => s + Number(e.amount), 0);
 
-    // ✅ حماية KPIs
     const kpisEl = document.getElementById('expenses-kpis');
     if (kpisEl) {
       kpisEl.innerHTML = `
@@ -2580,7 +2800,11 @@ window.Modules = {
   statusBadge,
   emptyState,
   downloadCSV,
-  loadExpensesList
+  loadExpensesList,
+  // دوال الموافقة
+  loadOrderItems,
+  openApproveWarehouseOrder,
+  openRejectWarehouseOrder
 };
 
-console.log('✅ modules.js جاهز (محدّث - حماية DOM)');
+console.log('✅ modules.js جاهز (محدّث - نظام موافقة مزدوجة)');
