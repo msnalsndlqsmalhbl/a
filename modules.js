@@ -86,15 +86,15 @@ async function renderDashboard(container) {
 
     container.innerHTML = `
       <div class="kpi-grid">
-        ${kpiCard('إجمالي المبيعات', window.App.formatCurrency(kpi.totalSales), 'money', 'blue')}
+        ${kpiCard('إجمالي المبيعات', window.App.formatCurrencyShort(kpi.totalSales), 'money', 'blue')}
         ${kpiCard('عدد المنتجات', window.App.formatNumber(kpi.productCount), 'box', 'purple')}
         ${kpiCard('عدد العملاء', window.App.formatNumber(kpi.customerCount), 'users', 'green')}
         ${kpiCard('عدد الموردين', window.App.formatNumber(kpi.supplierCount), 'truck', 'cyan')}
-        ${kpiCard('خزنة الكاش', window.App.formatCurrency(kpi.cashBalance), 'wallet', 'gold')}
-        ${kpiCard('خزنة البنك', window.App.formatCurrency(kpi.bankBalance), 'money', 'blue')}
-        ${kpiCard('خزائن أخرى', window.App.formatCurrency(kpi.extraBalance || 0), 'wallet', 'cyan')}
-        ${kpiCard('إجمالي الخزنة', window.App.formatCurrency(kpi.totalTreasury), 'wallet', 'green')}
-        ${kpiCard('مصروفات الشهر', window.App.formatCurrency(kpi.monthExpenses), 'receipt', 'red')}
+        ${kpiCard('خزنة الكاش', window.App.formatCurrencyShort(kpi.cashBalance), 'wallet', 'gold')}
+        ${kpiCard('خزنة البنك', window.App.formatCurrencyShort(kpi.bankBalance), 'money', 'blue')}
+        ${kpiCard('خزائن أخرى', window.App.formatCurrencyShort(kpi.extraBalance || 0), 'wallet', 'cyan')}
+        ${kpiCard('إجمالي الخزنة', window.App.formatCurrencyShort(kpi.totalTreasury), 'wallet', 'green')}
+        ${kpiCard('مصروفات الشهر', window.App.formatCurrencyShort(kpi.monthExpenses), 'receipt', 'red')}
         ${kpiCard('تنبيهات المخزون', window.App.formatNumber(kpi.lowStockCount), 'alert', kpi.lowStockCount > 0 ? 'red' : 'green')}
       </div>
 
@@ -119,7 +119,7 @@ async function renderDashboard(container) {
                 <tbody>${recentSales.map(s => `
                   <tr>
                     <td data-label="الفاتورة">${window.App.escapeHtml(s.invoice_number || '—')}</td>
-                    <td data-label="الإجمالي">${window.App.formatCurrency(s.total)}</td>
+                    <td data-label="الإجمالي">${window.App.money(s.total)}</td>
                     <td data-label="الحالة">${statusBadge(s.status)}</td>
                   </tr>`).join('')}
                 </tbody>
@@ -136,7 +136,7 @@ async function renderDashboard(container) {
                 <tbody>${recentCash.map(c => `
                   <tr>
                     <td data-label="النوع">${c.type === 'in' ? '<span class="badge badge-success">إيداع</span>' : '<span class="badge badge-danger">سحب</span>'}</td>
-                    <td data-label="المبلغ" class="${c.type === 'in' ? 'text-success' : 'text-danger'}">${window.App.formatCurrency(c.amount)}</td>
+                    <td data-label="المبلغ">${window.App.money(c.type === 'in' ? c.amount : -c.amount)}</td>
                     <td data-label="التاريخ">${window.App.formatDate(c.created_at)}</td>
                   </tr>`).join('')}
                 </tbody>
@@ -246,16 +246,16 @@ function renderTreasuryPie(cash, bank, extra = 0) {
     <div style="display:flex;flex-direction:column;gap:10px;">
       <div style="display:flex;align-items:center;gap:8px;">
         <div style="width:12px;height:12px;background:#3b82f6;border-radius:4px;"></div>
-        <div><div style="font-size:11px;color:var(--text-3);">كاش</div><div style="font-size:14px;font-weight:700;">${window.App.formatCurrency(cash)}</div></div>
+        <div><div style="font-size:11px;color:var(--text-3);">كاش</div><div style="font-size:14px;font-weight:700;">${window.App.formatCurrencyShort(cash)}</div></div>
       </div>
       <div style="display:flex;align-items:center;gap:8px;">
         <div style="width:12px;height:12px;background:#f59e0b;border-radius:4px;"></div>
-        <div><div style="font-size:11px;color:var(--text-3);">بنك</div><div style="font-size:14px;font-weight:700;">${window.App.formatCurrency(bank)}</div></div>
+        <div><div style="font-size:11px;color:var(--text-3);">بنك</div><div style="font-size:14px;font-weight:700;">${window.App.formatCurrencyShort(bank)}</div></div>
       </div>
       ${extra > 0 ? `
         <div style="display:flex;align-items:center;gap:8px;">
           <div style="width:12px;height:12px;background:#06b6d4;border-radius:4px;"></div>
-          <div><div style="font-size:11px;color:var(--text-3);">خزائن أخرى</div><div style="font-size:14px;font-weight:700;">${window.App.formatCurrency(extra)}</div></div>
+          <div><div style="font-size:11px;color:var(--text-3);">خزائن أخرى</div><div style="font-size:14px;font-weight:700;">${window.App.formatCurrencyShort(extra)}</div></div>
         </div>` : ''}
     </div>
   </div>`;
@@ -332,7 +332,6 @@ async function loadSalesList() {
     if (error) throw new Error(error);
 
     if (!listEl) return;
-
     if (!sales.length) { listEl.innerHTML = emptyState('لا توجد فواتير في هذه الفترة'); return; }
 
     listEl.innerHTML = `
@@ -349,10 +348,10 @@ async function loadSalesList() {
               <tr>
                 <td data-label="الفاتورة"><strong>${window.App.escapeHtml(s.invoice_number || '—')}</strong></td>
                 <td data-label="العميل">${window.App.escapeHtml(s.customers?.name || 'عميل نقدي')}</td>
-                <td data-label="الإجمالي">${window.App.formatCurrency(s.total)}</td>
-                <td data-label="الخصم" class="${s.discount_amount > 0 ? 'text-warning' : ''}">${s.discount_amount > 0 ? window.App.formatCurrency(s.discount_amount) : '—'}</td>
-                <td data-label="المدفوع" class="text-success">${window.App.formatCurrency(Number(s.paid_cash) + Number(s.paid_bank))}</td>
-                <td data-label="المتبقي" >${window.App.money(s.remaining)}</td>
+                <td data-label="الإجمالي">${window.App.money(s.total)}</td>
+                <td data-label="الخصم">${s.discount_amount > 0 ? window.App.money(-s.discount_amount) : '—'}</td>
+                <td data-label="المدفوع">${window.App.money(Number(s.paid_cash) + Number(s.paid_bank))}</td>
+                <td data-label="المتبقي">${window.App.money(s.remaining)}</td>
                 <td data-label="طريقة الدفع">${paymentMethodLabel(s.payment_method)}</td>
                 <td data-label="الحالة">${statusBadge(s.status)}</td>
                 <td data-label="التاريخ">${window.App.formatDate(s.created_at)}</td>
@@ -847,7 +846,6 @@ async function saveSale() {
     if (error) throw new Error(error);
 
     if (!sale.duplicate) {
-      // ✅ لا اعتماد مباشر — بانتظار موافقة المخزن
       window.App.showToast(
         'تم حفظ الفاتورة — بانتظار موافقة أمين المخزن',
         'info',
@@ -959,15 +957,15 @@ async function viewSaleDetails(saleId) {
           </div>
           <div style="display:flex;justify-content:space-between;margin-bottom:4px;">
             <span>المدفوع كاش:</span>
-            <span class="text-success">${window.App.formatCurrency(sale.paid_cash)}</span>
+            <span>${window.App.money(sale.paid_cash)}</span>
           </div>
           <div style="display:flex;justify-content:space-between;margin-bottom:4px;">
             <span>المدفوع بنك:</span>
-            <span class="text-success">${window.App.formatCurrency(sale.paid_bank)}</span>
+            <span>${window.App.money(sale.paid_bank)}</span>
           </div>
           <div style="display:flex;justify-content:space-between;padding-top:6px;border-top:2px solid var(--border);margin-top:6px;">
             <strong>المتبقي:</strong>
-            <strong class="${sale.remaining > 0 ? 'text-danger' : 'text-success'}" style="font-size:15px;">${window.App.formatCurrency(sale.remaining)}</strong>
+            <strong style="font-size:15px;">${window.App.money(sale.remaining)}</strong>
           </div>
         </div>
 
@@ -1126,7 +1124,7 @@ async function loadCustomersList(search = '') {
                 <td data-label="الاسم"><strong>${window.App.escapeHtml(c.name)}</strong></td>
                 <td data-label="الهاتف">${window.App.escapeHtml(c.phone || '—')}</td>
                 <td data-label="العنوان">${window.App.escapeHtml(c.address || '—')}</td>
-                <td data-label="الرصيد" >${window.App.money(c.balance)}</td>
+                <td data-label="الرصيد">${window.App.money(c.balance)}</td>
                 <td data-label="إجراءات">
                   <div style="display:flex;gap:6px;flex-wrap:wrap;">
                     ${c.balance > 0 && window.App.hasPermission('customers', 'approve') ? `
@@ -1251,8 +1249,8 @@ async function viewCustomerStatement(id) {
                   <td>${window.App.escapeHtml(s.ref || '—')}</td>
                   <td>${window.App.formatDate(s.date)}</td>
                   <td>${s.type === 'sale' ? window.App.formatCurrency(s.amount) : '—'}</td>
-                  <td class="text-success">${window.App.formatCurrency(s.paid)}</td>
-                  <td><strong>${window.App.formatCurrency(s.running_balance)}</strong></td>
+                  <td>${window.App.money(s.paid)}</td>
+                  <td><strong>${window.App.money(s.running_balance)}</strong></td>
                 </tr>
               `).join('')}
             </tbody>
@@ -1261,9 +1259,7 @@ async function viewCustomerStatement(id) {
 
         <div style="margin-top:20px;padding:16px;background:${finalBalance > 0 ? 'rgba(239,68,68,0.08)' : 'rgba(16,185,129,0.08)'};border-radius:12px;display:flex;justify-content:space-between;align-items:center;">
           <span style="font-weight:700;font-size:14px;">الرصيد النهائي:</span>
-          <strong style="font-size:20px;color:${finalBalance > 0 ? 'var(--danger)' : 'var(--success)'};">
-            ${window.App.formatCurrency(finalBalance)}
-          </strong>
+          <strong style="font-size:20px;">${window.App.money(finalBalance)}</strong>
         </div>
 
         <div style="text-align:center;margin-top:24px;padding-top:16px;border-top:1px dashed var(--border);color:var(--text-3);font-size:11px;">
@@ -1341,7 +1337,7 @@ async function openCustomerPayment(customerId) {
     const bodyHtml = `
       <div style="padding:12px;background:rgba(239,68,68,0.08);border-radius:10px;margin-bottom:12px;display:flex;justify-content:space-between;">
         <span>الدين الحالي:</span>
-        <strong style="color:var(--danger);">${window.App.formatCurrency(customer.balance)}</strong>
+        <strong>${window.App.money(customer.balance)}</strong>
       </div>
 
       <div class="input-group">
@@ -1476,7 +1472,7 @@ async function loadSuppliersList(search = '') {
                 <td data-label="الاسم"><strong>${window.App.escapeHtml(s.name)}</strong></td>
                 <td data-label="الهاتف">${window.App.escapeHtml(s.phone || '—')}</td>
                 <td data-label="العنوان">${window.App.escapeHtml(s.address || '—')}</td>
-                <td data-label="الرصيد">${window.App.formatCurrency(s.balance)}</td>
+                <td data-label="الرصيد">${window.App.money(s.balance)}</td>
                 <td data-label="إجراءات">
                   <div style="display:flex;gap:6px;flex-wrap:wrap;">
                     ${s.balance > 0 && window.App.hasPermission('suppliers', 'approve') ? `
@@ -1564,7 +1560,7 @@ async function viewSupplierStatement(id) {
     <h3 style="font-size:16px;font-weight:800;margin-bottom:8px;">${window.App.escapeHtml(supplier.name)}</h3>
     <div style="padding:12px;background:rgba(245,158,11,0.08);border-radius:10px;margin-bottom:12px;display:flex;justify-content:space-between;">
       <span>الرصيد الحالي:</span>
-      <strong style="color:var(--accent);">${window.App.formatCurrency(supplier.balance)}</strong>
+      <strong>${window.App.money(supplier.balance)}</strong>
     </div>
 
     ${payments.length === 0 ? emptyState('لا توجد سدادات') : `
@@ -1574,7 +1570,7 @@ async function viewSupplierStatement(id) {
           <thead><tr><th>المبلغ</th><th>الطريقة</th><th>البيان</th><th>التاريخ</th></tr></thead>
           <tbody>${payments.map(p => `
             <tr>
-              <td>${window.App.formatCurrency(p.amount)}</td>
+              <td>${window.App.money(p.amount)}</td>
               <td>${p.payment_type === 'cash' ? 'كاش' : p.payment_type === 'bank' ? 'بنك' : 'خزنة أخرى'}</td>
               <td>${window.App.escapeHtml(p.description || '—')}</td>
               <td>${window.App.formatDate(p.created_at)}</td>
@@ -1599,7 +1595,7 @@ async function openSupplierPayment(supplierId) {
     const bodyHtml = `
       <div style="padding:12px;background:rgba(245,158,11,0.08);border-radius:10px;margin-bottom:12px;display:flex;justify-content:space-between;">
         <span>الرصيد المستحق:</span>
-        <strong style="color:var(--accent);">${window.App.formatCurrency(supplier.balance)}</strong>
+        <strong>${window.App.money(supplier.balance)}</strong>
       </div>
 
       <div class="input-group">
@@ -1769,7 +1765,6 @@ async function renderWarehouse(container) {
 
     await Promise.all([loadWarehouseKPIs(), loadProductsList()]);
 
-    // تحميل بنود كل طلب
     for (const order of pendingOrders) {
       loadOrderItems(order.id);
     }
@@ -1953,7 +1948,7 @@ async function loadWarehouseKPIs() {
     kpisEl.innerHTML = `
       ${kpiCard('عدد المنتجات', window.App.formatNumber(totalProducts), 'box', 'blue')}
       ${kpiCard('إجمالي الكميات', window.App.formatNumber(totalQuantity), 'activity', 'cyan')}
-      ${kpiCard('قيمة المخزون', window.App.formatCurrency(totalValue), 'money', 'gold')}
+      ${kpiCard('قيمة المخزون', window.App.formatCurrencyShort(totalValue), 'money', 'gold')}
       ${kpiCard('منتجات منخفضة', window.App.formatNumber(lowStock), 'alert', lowStock > 0 ? 'red' : 'green')}
     `;
   } catch (err) { console.warn('KPI error:', err); }
@@ -2350,10 +2345,10 @@ async function renderTreasury(container) {
       </div>
 
       <div class="kpi-grid">
-        ${kpiCard('خزنة الكاش', window.App.formatCurrency(cash), 'wallet', 'gold')}
-        ${kpiCard('خزنة البنك', window.App.formatCurrency(bank), 'money', 'blue')}
-        ${kpiCard('خزائن أخرى', window.App.formatCurrency(extra), 'wallet', 'cyan')}
-        ${kpiCard('الرصيد الكلي', window.App.formatCurrency(cash + bank + extra), 'wallet', 'green')}
+        ${kpiCard('خزنة الكاش', window.App.formatCurrencyShort(cash), 'wallet', 'gold')}
+        ${kpiCard('خزنة البنك', window.App.formatCurrencyShort(bank), 'money', 'blue')}
+        ${kpiCard('خزائن أخرى', window.App.formatCurrencyShort(extra), 'wallet', 'cyan')}
+        ${kpiCard('الرصيد الكلي', window.App.formatCurrencyShort(cash + bank + extra), 'wallet', 'green')}
       </div>
 
       ${extraBoxes.length > 0 ? `
@@ -2366,7 +2361,7 @@ async function renderTreasury(container) {
                 <tr>
                   <td data-label="الاسم"><strong>${window.App.escapeHtml(b.name)}</strong></td>
                   <td data-label="النوع">${b.type === 'cash' ? 'كاش' : b.type === 'bank' ? 'بنك' : 'أخرى'}</td>
-                  <td data-label="الرصيد">${window.App.formatCurrency(b.balance)}</td>
+                  <td data-label="الرصيد">${window.App.money(b.balance)}</td>
                   <td data-label="ملاحظات">${window.App.escapeHtml(b.notes || '—')}</td>
                 </tr>`).join('')}
               </tbody>
@@ -2416,7 +2411,7 @@ async function loadCashTransactions() {
           <tbody>${data.map(t => `
             <tr>
               <td data-label="النوع">${t.type === 'in' ? '<span class="badge badge-success">إيداع</span>' : '<span class="badge badge-danger">سحب</span>'}</td>
-              <td data-label="المبلغ" class="${t.type === 'in' ? 'text-success' : 'text-danger'}">${window.App.formatCurrency(t.amount)}</td>
+              <td data-label="المبلغ">${window.App.money(t.type === 'in' ? t.amount : -t.amount)}</td>
               <td data-label="البيان">${window.App.escapeHtml(t.description || '—')}</td>
               <td data-label="التاريخ">${window.App.formatDate(t.created_at)}</td>
             </tr>`).join('')}
@@ -2439,7 +2434,7 @@ async function loadBankTransactions() {
           <tbody>${data.map(t => `
             <tr>
               <td data-label="النوع">${t.type === 'in' ? '<span class="badge badge-success">إيداع</span>' : '<span class="badge badge-danger">سحب</span>'}</td>
-              <td data-label="المبلغ" class="${t.type === 'in' ? 'text-success' : 'text-danger'}">${window.App.formatCurrency(t.amount)}</td>
+              <td data-label="المبلغ">${window.App.money(t.type === 'in' ? t.amount : -t.amount)}</td>
               <td data-label="المرجع">${window.App.escapeHtml(t.bank_ref || t.description || '—')}</td>
               <td data-label="التاريخ">${window.App.formatDate(t.created_at)}</td>
             </tr>`).join('')}
@@ -2464,7 +2459,7 @@ async function loadTransfers() {
               <td data-label="من">${t.from_type === 'cash' ? 'كاش' : 'بنك'}</td>
               <td data-label="إلى">${t.to_type === 'cash' ? 'كاش' : 'بنك'}</td>
               <td data-label="المستفيد">${window.App.escapeHtml(t.to_name || '—')}</td>
-              <td data-label="المبلغ">${window.App.formatCurrency(t.amount)}</td>
+              <td data-label="المبلغ">${window.App.money(t.amount)}</td>
               <td data-label="التاريخ">${window.App.formatDate(t.created_at)}</td>
             </tr>`).join('')}
           </tbody>
@@ -2659,8 +2654,8 @@ async function loadExpensesList() {
     const kpisEl = document.getElementById('expenses-kpis');
     if (kpisEl) {
       kpisEl.innerHTML = `
-        ${kpiCard('إجمالي المصروفات', window.App.formatCurrency(total), 'receipt', 'red')}
-        ${kpiCard('المعتمدة فقط', window.App.formatCurrency(approved), 'check', 'green')}
+        ${kpiCard('إجمالي المصروفات', window.App.formatCurrencyShort(total), 'receipt', 'red')}
+        ${kpiCard('المعتمدة فقط', window.App.formatCurrencyShort(approved), 'check', 'green')}
         ${kpiCard('عدد المصروفات', window.App.formatNumber(data.length), 'activity', 'blue')}
       `;
     }
@@ -2677,7 +2672,7 @@ async function loadExpensesList() {
               <td data-label="الفئة"><strong>${window.App.escapeHtml(e.category)}</strong></td>
               <td data-label="النوع">${e.type === 'operational' ? 'تشغيلي' : 'غير تشغيلي'}</td>
               <td data-label="البيان">${window.App.escapeHtml(e.description || '—')}</td>
-              <td data-label="المبلغ" class="text-danger">${window.App.formatCurrency(e.amount)}</td>
+              <td data-label="المبلغ">${window.App.money(-e.amount)}</td>
               <td data-label="الخزنة">${e.cashbox_type === 'cash' ? 'كاش' : 'بنك'}</td>
               <td data-label="الحالة">${statusBadge(e.status)}</td>
               <td data-label="التاريخ">${window.App.formatDate(e.created_at)}</td>
@@ -2801,10 +2796,9 @@ window.Modules = {
   emptyState,
   downloadCSV,
   loadExpensesList,
-  // دوال الموافقة
   loadOrderItems,
   openApproveWarehouseOrder,
   openRejectWarehouseOrder
 };
 
-console.log('✅ modules.js جاهز (محدّث - نظام موافقة مزدوجة)');
+console.log('✅ modules.js جاهز (محدّث - ألوان العملة + موافقة مزدوجة)');
