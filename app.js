@@ -19,7 +19,7 @@ const AppState = {
   currentPage: 1,
   pageSize: 20,
   processingLock: false,
-  routeLoading: false  // ← منع التنقل المزدوج
+  routeLoading: false
 };
 
 /* ═══════════════════════════════════════════════════════════════
@@ -80,6 +80,9 @@ const ICONS = {
    4. دوال مساعدة
    ═══════════════════════════════════════════════════════════════ */
 
+/**
+ * ✅ تنسيق العملة (مع دعم الأرقام السالبة)
+ */
 function formatCurrency(amount) {
   const num = Number(amount) || 0;
   const absNum = Math.abs(num);
@@ -93,19 +96,53 @@ function formatCurrency(amount) {
   return formatted + ' ج.س';
 }
 
+/**
+ * ✅ تنسيق مختصر للأرقام الكبيرة (للـ KPI)
+ * 7,500,000 → "7.5M"
+ */
+function formatCurrencyShort(amount) {
+  const num = Number(amount) || 0;
+  const absNum = Math.abs(num);
+  const sign = num < 0 ? '− ' : '';
+  
+  if (absNum >= 1000000) {
+    return sign + (absNum / 1000000).toFixed(2).replace(/\.?0+$/, '') + 'M ج.س';
+  }
+  if (absNum >= 1000) {
+    return sign + (absNum / 1000).toFixed(1).replace(/\.?0+$/, '') + 'K ج.س';
+  }
+  return sign + absNum.toFixed(0) + ' ج.س';
+}
+
+/**
+ * ✅ تنسيق العملة كـ HTML مع لون تلقائي
+ * سالب → أحمر | موجب → أخضر | صفر → رمادي
+ */
 function money(amount) {
   const num = Number(amount) || 0;
   const formatted = formatCurrency(num);
   
-  let color = 'var(--text)';
+  let color = 'var(--text-2)';
   if (num < 0) color = 'var(--danger)';
   else if (num > 0) color = 'var(--success)';
   
   return `<span style="color:${color};font-weight:700;direction:ltr;unicode-bidi:embed;display:inline-block;">${formatted}</span>`;
 }
 
+/**
+ * ✅ تنسيق المتبقي (سالب = أحمر، موجب = عادي)
+ */
+function remainingMoney(amount) {
+  const num = Number(amount) || 0;
+  const formatted = formatCurrency(num);
+  
+  const color = num > 0 ? 'var(--danger)' : 'var(--success)';
+  
+  return `<span style="color:${color};font-weight:700;direction:ltr;unicode-bidi:embed;display:inline-block;">${formatted}</span>`;
+}
+
 function formatNumber(n) {
-  return new Intl.NumberFormat('ar-SD').format(Number(n) || 0);
+  return new Intl.NumberFormat('en-US').format(Number(n) || 0);
 }
 
 function formatDate(dateStr) {
@@ -164,7 +201,6 @@ function uid() {
   });
 }
 
-/** قفل العمليات لمنع النقر المزدوج */
 function lockProcessing(btn, text = 'جاري المعالجة...') {
   if (!btn) return () => {};
   const originalText = btn.innerHTML;
@@ -178,7 +214,6 @@ function lockProcessing(btn, text = 'جاري المعالجة...') {
   };
 }
 
-/** حماية DOM - التأكد من وجود العنصر قبل الكتابة */
 function safeSetHTML(elementId, html) {
   const el = document.getElementById(elementId);
   if (el) {
@@ -188,7 +223,6 @@ function safeSetHTML(elementId, html) {
   return false;
 }
 
-/** انتظار حتى تصبح عناصر DOM جاهزة */
 async function waitForDOM(timeout = 500) {
   return new Promise(resolve => {
     const start = Date.now();
@@ -357,11 +391,7 @@ function navigateTo(route) {
   } catch (err) { console.error('❌ navigateTo:', err); }
 }
 
-/**
- * ✅ renderRoute محدّث - يحل مشكلة "Cannot set properties of null"
- */
 async function renderRoute(route) {
-  // منع التنقل المزدوج
   if (AppState.routeLoading) {
     console.log('⏳ جاري تحميل شاشة أخرى... انتظر');
     return;
@@ -375,7 +405,6 @@ async function renderRoute(route) {
       return;
     }
 
-    // ✅ 1. عرض Skeleton أولاً
     container.innerHTML = `
       <div class="skeleton-wrap">
         <div class="skeleton skeleton-card"></div>
@@ -384,7 +413,6 @@ async function renderRoute(route) {
         <div class="skeleton skeleton-card"></div>
       </div>`;
 
-    // ✅ 2. انتظر حتى يبني المتصفح الـ DOM
     await new Promise(r => setTimeout(r, 80));
 
     const renderers = {
@@ -406,15 +434,12 @@ async function renderRoute(route) {
 
     const fn = renderers[route];
     if (fn) {
-      // ✅ 3. انتظر انتهاء الدالة بالكامل
       await fn();
     } else {
       container.innerHTML = `<div class="empty-state"><h3>الشاشة قيد التطوير</h3></div>`;
     }
 
-    // ✅ 4. انتظر إضافي ليستقر DOM
     await new Promise(r => setTimeout(r, 50));
-
   } catch (err) {
     console.error('❌ renderRoute:', err);
     const container = document.getElementById('content');
@@ -510,34 +535,27 @@ function translateAuthError(msg) {
 }
 
 async function enterApp() {
-  // ✅ 1. أخفِ شاشة الدخول وأظهر التطبيق فوراً
   document.getElementById('login-screen').classList.add('hidden');
   document.getElementById('app').classList.remove('hidden');
 
-  // ✅ 2. بيانات المستخدم (سريعة)
   const initial = (AppState.profile.full_name || 'م').trim().charAt(0);
   document.getElementById('user-avatar').textContent = initial;
   document.getElementById('user-name').textContent = AppState.profile.full_name || 'مستخدم';
-  document.getElementById('user-role').textContent = 
-    AppState.profile.role === 'admin' ? 'مدير النظام' : AppState.profile.role;
+  document.getElementById('user-role').textContent = AppState.profile.role === 'admin' ? 'مدير النظام' : AppState.profile.role;
 
-  // ✅ 3. بناء القائمة
   renderNavigation();
 
-  // ✅ 4. التنقل للصفحة المطلوبة
   const hash = window.location.hash.replace('#', '') || 'dashboard';
   navigateTo(hash);
 
-  // ✅ 5. Realtime في الخلفية (لا يوقف شيء)
   setTimeout(() => setupRealtime(), 1000);
 }
 
 function setupRealtime() {
   try {
-    const tables = ['sales', 'products', 'cash_transactions', 'bank_transactions', 'expenses', 'customers', 'returns'];
+    const tables = ['sales', 'products', 'expenses'];
     tables.forEach(t => {
       window.SB.subscribeToTable(t, () => {
-        // ✅ فقط لو على لوحة التحكم
         if (AppState.currentRoute === 'dashboard' && !AppState.routeLoading) {
           window.Modules?.refreshDashboard?.();
         }
@@ -710,7 +728,6 @@ function setupEventListeners() {
    14. معالج الأخطاء العام
    ═══════════════════════════════════════════════════════════════ */
 function setupGlobalErrorHandler() {
-  // تجاهل أخطاء DOM المؤقتة (Cannot set innerHTML of null)
   window.addEventListener('error', (event) => {
     const msg = event.message || '';
     if (msg.includes('innerHTML') || msg.includes('Cannot set properties of null')) {
@@ -729,14 +746,6 @@ function setupGlobalErrorHandler() {
   });
 }
 
-
-
-
-
-
-
-
-
 /* ═══════════════════════════════════════════════════════════════
    15. Init
    ═══════════════════════════════════════════════════════════════ */
@@ -745,19 +754,15 @@ async function initApp() {
     console.log('🚀 بدء تشغيل النظام...');
     const startTime = performance.now();
 
-    // ✅ 1. حمّل المظهر فوراً
     const savedTheme = localStorage.getItem('theme');
     if (savedTheme === 'light') document.body.classList.add('light-mode');
 
-    // ✅ 2. جهّز الأحداث
     setupEventListeners();
     setupKeyboardShortcuts();
     setupGlobalErrorHandler();
 
-    // ✅ 3. جلب الجلسة (بالتوازي مع إخفاء Splash)
     const sessionPromise = window.SB.getSession();
 
-    // ✅ 4. أخفِ Splash بسرعة (1.2 ثانية بدل 1.9)
     setTimeout(() => {
       document.getElementById('splash')?.classList.add('fade-out');
       setTimeout(() => document.getElementById('splash')?.remove(), 400);
@@ -765,11 +770,9 @@ async function initApp() {
 
     await new Promise(r => setTimeout(r, 1300));
 
-    // ✅ 5. الجلسة
     const { session } = await sessionPromise;
 
     if (session) {
-      // ✅ 6. جلب profile + permissions بالتوازي
       const [profileResult, permsResult] = await Promise.all([
         window.SB.getUserProfile(session.user.id),
         window.SB.getUserPermissions(session.user.id)
@@ -803,6 +806,7 @@ async function initApp() {
     setTimeout(() => document.getElementById('login-screen')?.classList.remove('hidden'), 300);
   }
 }
+
 /* ═══════════════════════════════════════════════════════════════
    16. Export
    ═══════════════════════════════════════════════════════════════ */
@@ -810,8 +814,11 @@ window.App = {
   state: AppState,
   routes: ROUTES,
   icons: ICONS,
+  // ✅ دوال التنسيق
   formatCurrency,
-  money,                    // ← أضف هذا السطر
+  formatCurrencyShort,
+  money,
+  remainingMoney,
   formatNumber,
   formatDate,
   formatDateTime,
@@ -840,4 +847,4 @@ window.App = {
 };
 
 document.addEventListener('DOMContentLoaded', initApp);
-console.log('✅ app.js جاهز (محدّث - معالج أخطاء DOM)');
+console.log('✅ app.js جاهز (محدّث - معالج أخطاء DOM + تنسيق العملة)');
