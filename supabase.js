@@ -7,7 +7,7 @@
 
 /* ─────────────── إعداد الاتصال ─────────────── */
 const SUPABASE_URL = 'https://xejrpjunlgbwkfrklmha.supabase.co';
-const SUPABASE_ANON_KEY = 'sb_publishable_2ytJQbvaPBA-x4I9cE7DAA_hnDOI_Dc';
+const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhlanJwanVubGdid2tmcmtsbWhhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODkzMDY5OTcsImV4cCI6MjEwNDg4Mjk5N30.iFSQDLEVlAV_-sXhPGdo15Li3vGECoFrinWI6OVGRj4';
 
 let sb = null;
 try {
