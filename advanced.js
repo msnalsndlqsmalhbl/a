@@ -1,8 +1,7 @@
 /* ═══════════════════════════════════════════════════════════════
    نظام إدارة قسم الحبل - مصنع الصندل
    advanced.js - القيود + التسويات + التدقيق + الصلاحيات
-                 + الإعدادات + إدارة المستخدمين
-                 + النسخ الاحتياطي والاستعادة
+                 + الإعدادات + إدارة المستخدمين + النسخ الاحتياطي
    ═══════════════════════════════════════════════════════════════ */
 
 'use strict';
@@ -82,9 +81,6 @@ function adjustAdvancedGrid() {
 
 async function loadIncomeStatement() {
   try {
-    const incomeEl = document.getElementById('income-statement');
-    if (!incomeEl) return;
-
     const from = document.getElementById('jv-from')?.value;
     const to = document.getElementById('jv-to')?.value;
 
@@ -123,8 +119,10 @@ async function loadIncomeStatement() {
     const netRevenue = revenue - returnsTotal;
     const netProfit = netRevenue - costOfSales - totalExpenses;
 
-    if (!incomeEl) return;
-    incomeEl.innerHTML = `
+    const el = document.getElementById('income-statement');
+    if (!el) return;
+
+    el.innerHTML = `
       <div style="padding:10px 0;">
         ${incomeRow('الإيرادات', revenue, 'success')}
         ${returnsTotal > 0 ? incomeRow('(-) المرتجعات', -returnsTotal, 'danger') : ''}
@@ -142,7 +140,8 @@ async function loadIncomeStatement() {
       </div>
     `;
   } catch (err) {
-    console.warn('income statement:', err);
+    const el = document.getElementById('income-statement');
+    if (el) el.innerHTML = `<p style="color:var(--danger);padding:20px;">خطأ: ${window.App.escapeHtml(err.message)}</p>`;
   }
 }
 
@@ -158,9 +157,6 @@ function incomeRow(label, value, color, bold = false) {
 
 async function loadCashFlow() {
   try {
-    const cfEl = document.getElementById('cash-flow');
-    if (!cfEl) return;
-
     const from = document.getElementById('jv-from')?.value;
     const to = document.getElementById('jv-to')?.value;
 
@@ -197,8 +193,10 @@ async function loadCashFlow() {
     const closingBalance = currentTotal;
     const openingBalance = closingBalance - operatingFlow;
 
-    if (!cfEl) return;
-    cfEl.innerHTML = `
+    const el = document.getElementById('cash-flow');
+    if (!el) return;
+
+    el.innerHTML = `
       <div style="padding:10px 0;">
         ${incomeRow('تدفقات داخلة', totalIn, 'success')}
         ${incomeRow('(-) تدفقات خارجة', -totalOut, 'danger')}
@@ -222,15 +220,13 @@ async function loadCashFlow() {
       </div>
     `;
   } catch (err) {
-    console.warn('cash flow:', err);
+    const el = document.getElementById('cash-flow');
+    if (el) el.innerHTML = `<p style="color:var(--danger);padding:20px;">خطأ: ${window.App.escapeHtml(err.message)}</p>`;
   }
 }
 
 async function loadBalanceSheet() {
   try {
-    const bsEl = document.getElementById('balance-sheet');
-    if (!bsEl) return;
-
     const cash = await window.SB.getCashBalance();
     const bank = await window.SB.getBankBalance();
     const extra = await window.SB.getExtraBoxesBalance();
@@ -248,8 +244,10 @@ async function loadBalanceSheet() {
 
     const equity = totalAssets - payables;
 
-    if (!bsEl) return;
-    bsEl.innerHTML = `
+    const el = document.getElementById('balance-sheet');
+    if (!el) return;
+
+    el.innerHTML = `
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;" class="dashboard-grid">
         <div>
           <h4 style="font-size:14px;font-weight:700;color:var(--primary-2);margin-bottom:12px;">الأصول</h4>
@@ -278,7 +276,8 @@ async function loadBalanceSheet() {
       </div>
     `;
   } catch (err) {
-    console.warn('balance sheet:', err);
+    const el = document.getElementById('balance-sheet');
+    if (el) el.innerHTML = `<p style="color:var(--danger);padding:20px;">خطأ: ${window.App.escapeHtml(err.message)}</p>`;
   }
 }
 
@@ -310,6 +309,7 @@ async function loadJournalEntries() {
     }));
 
     if (!listEl) return;
+
     listEl.innerHTML = entriesWithLines.map(e => `
       <div style="background:rgba(255,255,255,0.03);border:1px solid var(--border);border-radius:12px;padding:14px;margin-bottom:12px;">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;flex-wrap:wrap;gap:8px;">
@@ -426,10 +426,10 @@ function recalcJournalTotals() {
     totalDebit += Number(l.querySelector('.jv-debit').value) || 0;
     totalCredit += Number(l.querySelector('.jv-credit').value) || 0;
   });
-  const debitEl = document.getElementById('jv-debit-total');
-  const creditEl = document.getElementById('jv-credit-total');
-  if (debitEl) debitEl.textContent = window.App.formatCurrency(totalDebit);
-  if (creditEl) creditEl.textContent = window.App.formatCurrency(totalCredit);
+  const dEl = document.getElementById('jv-debit-total');
+  const cEl = document.getElementById('jv-credit-total');
+  if (dEl) dEl.textContent = window.App.formatCurrency(totalDebit);
+  if (cEl) cEl.textContent = window.App.formatCurrency(totalCredit);
 
   const status = document.getElementById('jv-balance-status');
   if (status) {
@@ -559,10 +559,7 @@ async function loadReconciliationsList() {
           </tbody>
         </table>
       </div>`;
-  } catch (err) {
-    const el = document.getElementById('rec-list');
-    if (el) el.innerHTML = `<div class="empty-state"><p>${window.App.escapeHtml(err.message)}</p></div>`;
-  }
+  } catch (err) { console.warn('rec list:', err); }
 }
 
 async function openReconciliationModal() {
@@ -651,6 +648,7 @@ async function renderAudit(container) {
             <option value="update">تعديل</option>
             <option value="delete">حذف</option>
             <option value="approve">اعتماد</option>
+            <option value="reject">رفض</option>
             <option value="login">دخول</option>
             <option value="logout">خروج</option>
           </select>
@@ -721,6 +719,7 @@ function actionBadge(action) {
     update: '<span class="badge badge-info">تعديل</span>',
     delete: '<span class="badge badge-danger">حذف</span>',
     approve: '<span class="badge badge-primary">اعتماد</span>',
+    reject: '<span class="badge badge-danger">رفض</span>',
     login: '<span class="badge badge-gray">دخول</span>',
     logout: '<span class="badge badge-gray">خروج</span>'
   };
@@ -766,11 +765,98 @@ const MODULES_LIST = [
 async function renderPermissions(container) {
   try {
     if (!container) return;
-    if (window.App.state.role !== 'admin') {
-      container.innerHTML = `<div class="empty-state"><h3>غير مصرح</h3><p>هذه الشاشة للمدير فقط</p></div>`;
+
+    const isAdmin = window.App.state.role === 'admin';
+
+    // ═══════════════════════════════════════════════════════════
+    // للمستخدم العادي: عرض صلاحياته فقط
+    // ═══════════════════════════════════════════════════════════
+    if (!isAdmin) {
+      const perms = window.App.state.permissions || {};
+      const myProfile = window.App.state.profile;
+
+      container.innerHTML = `
+        <div class="page-header">
+          <div class="page-header-info">
+            <h2>صلاحياتي</h2>
+            <p>عرض صلاحيات حسابك في النظام</p>
+          </div>
+        </div>
+
+        <div class="card" style="margin-bottom:20px;background:linear-gradient(135deg,rgba(30,58,138,0.15),rgba(59,130,246,0.1));">
+          <div style="display:flex;align-items:center;gap:16px;flex-wrap:wrap;">
+            <div style="width:70px;height:70px;border-radius:50%;background:var(--primary-grad);display:flex;align-items:center;justify-content:center;font-size:28px;font-weight:800;color:white;">
+              ${(myProfile.full_name || 'م').charAt(0)}
+            </div>
+            <div style="flex:1;">
+              <h3 style="font-size:18px;font-weight:800;margin-bottom:4px;">
+                ${window.App.escapeHtml(myProfile.full_name)}
+              </h3>
+              <p style="color:var(--text-3);font-size:13px;margin-bottom:8px;">
+                ${window.App.escapeHtml(myProfile.email)}
+              </p>
+              <span class="badge badge-primary">${roleLabel(myProfile.role)}</span>
+              <span class="badge badge-success" style="margin-right:6px;">نشط</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-header">
+            <div class="card-title">🛡️ صلاحيات الوصول</div>
+          </div>
+          
+          <div class="table-wrap" style="background:transparent;border:none;">
+            <table class="responsive">
+              <thead>
+                <tr>
+                  <th>الوحدة</th>
+                  <th>عرض</th>
+                  <th>إضافة</th>
+                  <th>تعديل</th>
+                  <th>حذف</th>
+                  <th>اعتماد</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${MODULES_LIST.map(m => {
+                  const p = perms[m.key] || {};
+                  const hasAny = p.can_view || p.can_add || p.can_edit || p.can_delete || p.can_approve;
+                  
+                  return `
+                    <tr style="${!hasAny ? 'opacity:0.4;' : ''}">
+                      <td data-label="الوحدة" style="font-weight:600;">
+                        ${m.name}
+                        ${!hasAny ? ' <span class="badge badge-gray" style="font-size:9px;">غير مصرح</span>' : ''}
+                      </td>
+                      <td data-label="عرض">${permIcon(p.can_view)}</td>
+                      <td data-label="إضافة">${permIcon(p.can_add)}</td>
+                      <td data-label="تعديل">${permIcon(p.can_edit)}</td>
+                      <td data-label="حذف">${permIcon(p.can_delete)}</td>
+                      <td data-label="اعتماد">${permIcon(p.can_approve)}</td>
+                    </tr>
+                  `;
+                }).join('')}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="card" style="margin-top:16px;background:rgba(59,130,246,0.05);border-color:rgba(59,130,246,0.2);">
+          <div style="display:flex;align-items:flex-start;gap:12px;">
+            <div style="font-size:20px;">ℹ️</div>
+            <div style="font-size:12.5px;color:var(--text-2);line-height:1.7;">
+              لتغيير صلاحياتك، تواصل مع <strong>مدير النظام</strong>.
+            </div>
+          </div>
+        </div>
+      `;
       return;
     }
 
+    // ═══════════════════════════════════════════════════════════
+    // للمدير: عرض كل المستخدمين
+    // ═══════════════════════════════════════════════════════════
     container.innerHTML = `
       <div class="page-header">
         <div class="page-header-info"><h2>الصلاحيات</h2><p>إدارة المستخدمين والصلاحيات</p></div>
@@ -783,7 +869,9 @@ async function renderPermissions(container) {
         <div style="display:flex;align-items:flex-start;gap:12px;">
           <div style="font-size:20px;">✅</div>
           <div style="font-size:12.5px;color:var(--text-2);line-height:1.7;">
-            <strong style="color:var(--success);">ميزة جديدة:</strong> يمكنك الآن إنشاء المستخدمين مباشرة من داخل النظام — مع كلمة المرور والدور والصلاحيات.
+            <strong style="color:var(--success);">ميزة:</strong> 
+            يمكنك إنشاء المستخدمين وإدارة صلاحياتهم من هنا. 
+            <br>كل مستخدم سيرى <strong>صلاحياته فقط</strong> عند فتح شاشة الصلاحيات.
           </div>
         </div>
       </div>
@@ -798,11 +886,19 @@ async function renderPermissions(container) {
   }
 }
 
+function permIcon(allowed) {
+  if (allowed) {
+    return '<span style="color:#10b981;font-weight:700;font-size:14px;">✓</span>';
+  }
+  return '<span style="color:#64748b;font-size:14px;">—</span>';
+}
+
 async function loadUsersList() {
   try {
-    const { data: users } = await window.SB.select('users', { order: { column: 'created_at', ascending: false } });
     const el = document.getElementById('users-list');
     if (!el) return;
+
+    const { data: users } = await window.SB.select('users', { order: { column: 'created_at', ascending: false } });
 
     if (!users.length) { el.innerHTML = window.Modules.emptyState('لا يوجد مستخدمون'); return; }
 
@@ -831,10 +927,7 @@ async function loadUsersList() {
         </div>
       </div>
     `).join('');
-  } catch (err) {
-    const el = document.getElementById('users-list');
-    if (el) el.innerHTML = `<div class="empty-state"><p>${window.App.escapeHtml(err.message)}</p></div>`;
-  }
+  } catch (err) { console.warn('load users:', err); }
 }
 
 function roleLabel(role) {
@@ -842,7 +935,6 @@ function roleLabel(role) {
   return map[role] || role;
 }
 
-/* ─────────── إضافة مستخدم جديد (عبر Edge Function) ─────────── */
 async function openAddUserModal() {
   const bodyHtml = `
     <div class="input-group">
@@ -913,14 +1005,11 @@ async function openAddUserModal() {
       if (password.length < 6) throw new Error('كلمة المرور يجب أن تكون 6 أحرف على الأقل');
       if (password !== password2) throw new Error('كلمتا المرور غير متطابقتين');
 
-      console.log('🔄 إرسال طلب إنشاء مستخدم...');
-
       const { data, error } = await window.SB.client.functions.invoke('create-user', {
         body: { email, password, fullName, role }
       });
 
       if (error) {
-        console.error('❌ Edge Function error:', error);
         let msg = error.message || 'فشل الاتصال بالسيرفر';
         try {
           if (error.context && typeof error.context.json === 'function') {
@@ -936,7 +1025,6 @@ async function openAddUserModal() {
       window.App.showToast(`تم إنشاء المستخدم: ${fullName}`, 'success', 'نجاح');
       window.App.closeModal();
       await loadUsersList();
-
     } catch (err) {
       console.error('❌ createUser:', err);
       window.App.showToast(err.message, 'error');
@@ -946,7 +1034,6 @@ async function openAddUserModal() {
   });
 }
 
-/* ─────────── تعديل المستخدم ─────────── */
 async function openEditUser(userId) {
   try {
     const { data: user } = await window.SB.getById('users', userId);
@@ -995,7 +1082,6 @@ async function openEditUser(userId) {
   } catch (err) { window.App.showToast(err.message, 'error'); }
 }
 
-/* ─────────── حذف المستخدم (كامل عبر Edge Function) ─────────── */
 async function deleteUser(userId, userName) {
   const ok = await window.App.confirmDialog(
     `هل تريد حذف المستخدم "${userName}"؟ سيتم حذف الحساب نهائياً من Supabase (لا يمكن التراجع)`,
@@ -1023,14 +1109,12 @@ async function deleteUser(userId, userName) {
 
     window.App.showToast('تم حذف المستخدم بنجاح', 'success');
     await loadUsersList();
-
   } catch (err) {
     console.error('❌ deleteUser:', err);
     window.App.showToast(err.message, 'error');
   }
 }
 
-/* ─────────── تعديل الصلاحيات ─────────── */
 async function openEditPermissions(userId, userName) {
   try {
     const { data: perms } = await window.SB.getUserPermissions(userId);
@@ -1143,9 +1227,6 @@ async function renderSettings(container) {
         <div id="cashboxes-list" style="margin-bottom:12px;"></div>
       </div>
 
-      <!-- ═══════════════════════════════════════════════════
-           قسم النسخ الاحتياطي والاستعادة
-           ═══════════════════════════════════════════════════ -->
       <div class="card backup-section" style="margin-bottom:20px;">
         <div class="card-header">
           <div class="card-title">💾 النسخ الاحتياطي والاستعادة</div>
@@ -1228,7 +1309,7 @@ async function loadExternalLocations() {
           </tbody>
         </table>
       </div>`;
-  } catch (err) { console.warn('external:', err); }
+  } catch (err) { console.warn('ext locations:', err); }
 }
 
 async function loadExtraCashboxes() {
@@ -1251,7 +1332,7 @@ async function loadExtraCashboxes() {
           </tbody>
         </table>
       </div>`;
-  } catch (err) { console.warn('cashboxes:', err); }
+  } catch (err) { console.warn('extra cashboxes:', err); }
 }
 
 async function openAddExternalModal() {
@@ -1486,7 +1567,6 @@ async function downloadBackup() {
     }
 
     backup.total_records = totalRecords;
-
     updateBackupProgress(95, 'جاري التجهيز...');
 
     const jsonString = JSON.stringify(backup, null, 2);
@@ -1518,7 +1598,6 @@ async function downloadBackup() {
       'success',
       'نسخة احتياطية'
     );
-
   } catch (err) {
     console.error('❌ downloadBackup:', err);
     window.App.showToast('فشل النسخ الاحتياطي: ' + err.message, 'error');
@@ -1566,7 +1645,6 @@ function openImportModal() {
   `);
 
   let backupData = null;
-
   const dropzone = document.getElementById('import-dropzone');
   const fileInput = document.getElementById('import-file-input');
 
@@ -1628,7 +1706,6 @@ function openImportModal() {
       document.getElementById('do-import-btn').disabled = false;
 
       window.App.showToast('الملف صالح ✓', 'success');
-
     } catch (err) {
       console.error('❌ handleImportFile:', err);
       window.App.showToast('فشل قراءة الملف: ' + err.message, 'error');
@@ -1654,7 +1731,6 @@ function openImportModal() {
       );
 
       if (!confirmed) { unlock(); return; }
-
       window.App.closeModal();
 
       const progressCard = document.querySelector('.backup-progress');
@@ -1663,6 +1739,7 @@ function openImportModal() {
       const totalTables = BACKUP_TABLES.length;
       let restoredRecords = 0;
 
+      // حذف البيانات الحالية
       const reversedTables = [...BACKUP_TABLES].reverse();
       for (const table of reversedTables) {
         try {
@@ -1675,6 +1752,7 @@ function openImportModal() {
         }
       }
 
+      // استيراد البيانات
       for (let i = 0; i < BACKUP_TABLES.length; i++) {
         const table = BACKUP_TABLES[i];
         const percent = (i / totalTables) * 100;
@@ -1710,7 +1788,6 @@ function openImportModal() {
       );
 
       setTimeout(() => location.reload(), 2000);
-
     } catch (err) {
       console.error('❌ import error:', err);
       window.App.showToast('فشل الاستيراد: ' + err.message, 'error');
@@ -1793,7 +1870,6 @@ async function exportAllToExcel() {
     });
 
     window.App.showToast('تم تصدير كل البيانات بنجاح', 'success');
-
   } catch (err) {
     console.error('❌ exportAllToExcel:', err);
     window.App.showToast('فشل التصدير: ' + err.message, 'error');
@@ -1850,9 +1926,10 @@ window.Advanced = {
   openEditUser,
   openAddUserModal,
   deleteUser,
+  permIcon,
   downloadBackup,
   openImportModal,
   exportAllToExcel
 };
 
-console.log('✅ advanced.js جاهز (محدّث + إدارة المستخدمين + النسخ الاحتياطي)');
+console.log('✅ advanced.js جاهز (محدّث + صلاحيات شخصية + موافقة مزدوجة)');
