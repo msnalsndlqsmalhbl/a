@@ -1,13 +1,13 @@
 /* ═══════════════════════════════════════════════════════════════
    نظام إدارة قسم الحبل - مصنع الصندل
-   supabase.js - CRUD + Realtime + Storage + العمليات المركبة
+   supabase.js - CRUD + Auth + Realtime + عمليات مركبة
    ═══════════════════════════════════════════════════════════════ */
 
 'use strict';
 
 /* ─────────────── إعداد الاتصال ─────────────── */
-const SUPABASE_URL = 'https://xejrpjunlgbwkfrklmha.supabase.co';
-const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhlanJwanVubGdid2tmcmtsbWhhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODkzMDY5OTcsImV4cCI6MjEwNDg4Mjk5N30.iFSQDLEVlAV_-sXhPGdo15Li3vGECoFrinWI6OVGRj4';
+const SUPABASE_URL = 'https://YOUR_PROJECT.supabase.co';
+const SUPABASE_ANON_KEY = 'YOUR_ANON_KEY_HERE';
 
 let sb = null;
 try {
@@ -16,17 +16,9 @@ try {
       persistSession: true,
       autoRefreshToken: true,
       detectSessionInUrl: true,
-      storage: window.localStorage,
-      storageKey: 'sandal-auth',
-      flowType: 'implicit'
+      storage: window.localStorage
     },
-    realtime: {
-      params: { eventsPerSecond: 10 },
-      timeout: 10000
-    },
-    db: {
-      schema: 'public'
-    }
+    realtime: { params: { eventsPerSecond: 5 } }
   });
   console.log('✅ تم الاتصال بـ Supabase');
 } catch (err) {
@@ -282,9 +274,7 @@ async function autoJournalForSale(sale, items) {
       lines.push({ entry_id: entry.id, account_id: revAcc.id, debit: 0, credit: sale.total, description: 'إيراد مبيعات' });
     }
 
-    if (lines.length > 0) {
-      await sb.from('journal_lines').insert(lines);
-    }
+    if (lines.length > 0) await sb.from('journal_lines').insert(lines);
   } catch (err) {
     console.warn('⚠️ فشل القيد التلقائي:', err.message);
   }
@@ -368,7 +358,7 @@ async function autoJournalForCustomerPayment(payment, customer) {
 }
 
 /* ═══════════════════════════════════════════════════════════════
-   6. فاتورة مبيعات (إنشاء + اعتماد)
+   6. إنشاء فاتورة مبيعات
    ═══════════════════════════════════════════════════════════════ */
 
 async function createSale(saleData, items, payments = []) {
@@ -398,6 +388,7 @@ async function createSale(saleData, items, payments = []) {
       remaining: saleData.remaining || 0,
       payment_method: saleData.payment_method,
       status: 'pending',
+      warehouse_approved: false,
       notes: saleData.notes || '',
       client_uuid: saleData.client_uuid || null,
       user_id: user.id
@@ -442,6 +433,99 @@ async function createSale(saleData, items, payments = []) {
   }
 }
 
+/* ═══════════════════════════════════════════════════════════════
+   7. موافقة أمين المخزن
+   ═══════════════════════════════════════════════════════════════ */
+
+async function approveWarehouseOrder(saleId, notes = '') {
+  try {
+    const { user } = await authGetUser();
+    if (!user) throw new Error('يجب تسجيل الدخول');
+
+    const { data: sale, error: sErr } = await sb.from('sales').select('*').eq('id', saleId).single();
+    if (sErr) throw sErr;
+    if (sale.status === 'approved') throw new Error('الفاتورة معتمدة مسبقاً');
+    if (sale.status === 'rejected') throw new Error('الفاتورة مرفوضة');
+    if (sale.warehouse_approved) throw new Error('الفاتورة موافق عليها من المخزن مسبقاً');
+
+    // التحقق من الكميات
+    const { data: items } = await sb.from('sale_items').select('*').eq('sale_id', saleId);
+    for (const item of items) {
+      if (item.source_type !== 'warehouse') continue;
+      const { data: product } = await sb.from('products').select('*').eq('id', item.product_id).single();
+      if (product.quantity < item.quantity) {
+        throw new Error(`الكمية المتاحة من "${product.name}" غير كافية (المطلوب: ${item.quantity}, المتاح: ${product.quantity})`);
+      }
+    }
+
+    await sb.from('sales').update({
+      warehouse_approved: true,
+      warehouse_approved_by: user.id,
+      warehouse_approved_at: new Date().toISOString(),
+      warehouse_notes: notes
+    }).eq('id', saleId);
+
+    await logAudit('approve', 'sales', saleId, {
+      action: 'warehouse_approval',
+      invoice_number: sale.invoice_number,
+      notes
+    });
+
+    return { error: null };
+  } catch (err) {
+    return { error: err.message };
+  }
+}
+
+async function rejectWarehouseOrder(saleId, reason) {
+  try {
+    const { user } = await authGetUser();
+    if (!user) throw new Error('يجب تسجيل الدخول');
+    if (!reason || !reason.trim()) throw new Error('سبب الرفض مطلوب');
+
+    const { data: sale } = await sb.from('sales').select('*').eq('id', saleId).single();
+    if (!sale) throw new Error('الفاتورة غير موجودة');
+
+    await sb.from('sales').update({
+      status: 'rejected',
+      warehouse_approved: false,
+      warehouse_approved_by: user.id,
+      warehouse_approved_at: new Date().toISOString(),
+      warehouse_rejection_reason: reason.trim()
+    }).eq('id', saleId);
+
+    await logAudit('reject', 'sales', saleId, {
+      action: 'warehouse_rejection',
+      invoice_number: sale.invoice_number,
+      reason
+    });
+
+    return { error: null };
+  } catch (err) {
+    return { error: err.message };
+  }
+}
+
+async function getPendingWarehouseOrders() {
+  try {
+    const { data, error } = await sb
+      .from('sales')
+      .select('*, customers(name)')
+      .in('status', ['pending', 'awaiting_warehouse'])
+      .eq('warehouse_approved', false)
+      .order('created_at', { ascending: true });
+
+    if (error) throw error;
+    return { data: data || [], error: null };
+  } catch (err) {
+    return { data: [], error: err.message };
+  }
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   8. اعتماد فاتورة مبيعات
+   ═══════════════════════════════════════════════════════════════ */
+
 async function approveSale(saleId) {
   try {
     const { user } = await authGetUser();
@@ -450,10 +534,12 @@ async function approveSale(saleId) {
     const { data: sale, error: sErr } = await sb.from('sales').select('*').eq('id', saleId).single();
     if (sErr) throw sErr;
     if (sale.status === 'approved') throw new Error('الفاتورة معتمدة مسبقاً');
+    if (sale.status === 'rejected') throw new Error('الفاتورة مرفوضة - يجب تعديلها أولاً');
 
     const { data: items, error: iErr } = await sb.from('sale_items').select('*').eq('sale_id', saleId);
     if (iErr) throw iErr;
 
+    // خصم من المخزن
     for (const item of items) {
       if (item.source_type !== 'warehouse') continue;
 
@@ -475,6 +561,7 @@ async function approveSale(saleId) {
       });
     }
 
+    // حركات الخزنة
     if (sale.paid_cash > 0) {
       await sb.from('cash_transactions').insert({
         type: 'in',
@@ -494,6 +581,7 @@ async function approveSale(saleId) {
       });
     }
 
+    // دين العميل
     if (sale.remaining > 0 && sale.customer_id) {
       const { data: customer } = await sb.from('customers').select('*').eq('id', sale.customer_id).single();
       if (customer) {
@@ -503,7 +591,11 @@ async function approveSale(saleId) {
 
     await autoJournalForSale(sale, items);
 
-    await sb.from('sales').update({ status: 'approved' }).eq('id', saleId);
+    await sb.from('sales').update({
+      status: 'approved',
+      warehouse_approved: true
+    }).eq('id', saleId);
+
     await logAudit('approve', 'sales', sale.id, { invoice_number: sale.invoice_number });
 
     return { error: null };
@@ -514,7 +606,23 @@ async function approveSale(saleId) {
 }
 
 /* ═══════════════════════════════════════════════════════════════
-   7. سداد العملاء والموردين
+   9. إدارة المستخدمين
+   ═══════════════════════════════════════════════════════════════ */
+
+async function createUserAccount(email, password, fullName, role) {
+  try {
+    const { data, error } = await sb.functions.invoke('create-user', {
+      body: { email, password, fullName, role }
+    });
+    if (error) throw error;
+    return { data, error: null };
+  } catch (err) {
+    return { data: null, error: err.message };
+  }
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   10. سداد العملاء
    ═══════════════════════════════════════════════════════════════ */
 
 async function createCustomerPayment(customerId, amount, paymentType, options = {}) {
@@ -540,6 +648,7 @@ async function createCustomerPayment(customerId, amount, paymentType, options = 
     }).select().single();
     if (pErr) throw pErr;
 
+    // حركة الخزنة
     if (paymentType === 'cash') {
       await sb.from('cash_transactions').insert({
         type: 'in',
@@ -574,14 +683,18 @@ async function createCustomerPayment(customerId, amount, paymentType, options = 
 
     await sb.from('customers').update({ balance: Number(customer.balance) - Number(amount) }).eq('id', customerId);
     await autoJournalForCustomerPayment(payment, customer);
-
     await logAudit('create', 'customer_payments', payment.id, { customer_id: customerId, amount });
+
     return { data: payment, error: null };
   } catch (err) {
     console.error('❌ createCustomerPayment:', err.message);
     return { data: null, error: err.message };
   }
 }
+
+/* ═══════════════════════════════════════════════════════════════
+   11. سداد الموردين
+   ═══════════════════════════════════════════════════════════════ */
 
 async function createSupplierPayment(supplierId, amount, paymentType, options = {}) {
   try {
@@ -640,6 +753,7 @@ async function createSupplierPayment(supplierId, amount, paymentType, options = 
 
     await sb.from('suppliers').update({ balance: Number(supplier.balance) - Number(amount) }).eq('id', supplierId);
     await logAudit('create', 'supplier_payments', payment.id, { supplier_id: supplierId, amount });
+
     return { data: payment, error: null };
   } catch (err) {
     return { data: null, error: err.message };
@@ -647,7 +761,7 @@ async function createSupplierPayment(supplierId, amount, paymentType, options = 
 }
 
 /* ═══════════════════════════════════════════════════════════════
-   8. المخزن
+   12. إخراج من المخزن
    ═══════════════════════════════════════════════════════════════ */
 
 async function stockOut(productId, quantity, reason, options = {}) {
@@ -690,7 +804,7 @@ async function stockOut(productId, quantity, reason, options = {}) {
 }
 
 /* ═══════════════════════════════════════════════════════════════
-   9. المرتجعات
+   13. المرتجعات
    ═══════════════════════════════════════════════════════════════ */
 
 async function createReturn(saleId, items, refundType, reason) {
@@ -791,7 +905,7 @@ async function approveReturn(returnId) {
 }
 
 /* ═══════════════════════════════════════════════════════════════
-   10. أرصدة الخزائن
+   14. أرصدة الخزائن
    ═══════════════════════════════════════════════════════════════ */
 
 async function getCashBalance() {
@@ -833,7 +947,7 @@ async function getTotalTreasury() {
 }
 
 /* ═══════════════════════════════════════════════════════════════
-   11. التحويلات
+   15. التحويلات
    ═══════════════════════════════════════════════════════════════ */
 
 async function createTransfer(fromType, toType, amount, toName, description) {
@@ -883,7 +997,7 @@ async function createTransfer(fromType, toType, amount, toName, description) {
 }
 
 /* ═══════════════════════════════════════════════════════════════
-   12. المصروفات
+   16. المصروفات
    ═══════════════════════════════════════════════════════════════ */
 
 async function approveExpense(expenseId) {
@@ -915,7 +1029,7 @@ async function approveExpense(expenseId) {
 }
 
 /* ═══════════════════════════════════════════════════════════════
-   13. القيد اليدوي
+   17. القيد اليدوي
    ═══════════════════════════════════════════════════════════════ */
 
 async function createManualJournal(entryData, lines) {
@@ -956,7 +1070,7 @@ async function createManualJournal(entryData, lines) {
 }
 
 /* ═══════════════════════════════════════════════════════════════
-   14. التسويات
+   18. التسويات
    ═══════════════════════════════════════════════════════════════ */
 
 async function createReconciliation(type, actual, reason) {
@@ -1007,7 +1121,7 @@ async function createReconciliation(type, actual, reason) {
 }
 
 /* ═══════════════════════════════════════════════════════════════
-   15. Storage
+   19. Storage
    ═══════════════════════════════════════════════════════════════ */
 
 async function uploadAttachment(file, folder = 'general') {
@@ -1036,7 +1150,7 @@ async function clearAllAttachments() {
 }
 
 /* ═══════════════════════════════════════════════════════════════
-   16. Realtime
+   20. Realtime
    ═══════════════════════════════════════════════════════════════ */
 
 const realtimeChannels = {};
@@ -1066,10 +1180,12 @@ function unsubscribeAll() {
 }
 
 /* ═══════════════════════════════════════════════════════════════
-   17. حذف جميع البيانات
+   21. حذف جميع البيانات
    ═══════════════════════════════════════════════════════════════ */
 
 async function deleteAllData() {
+  const results = { success: [], failed: [] };
+
   const tables = [
     'journal_lines',
     'journal_entries',
@@ -1097,14 +1213,19 @@ async function deleteAllData() {
     'customers',
     'suppliers',
     'accounts',
-    'audit_logs'
+    'audit_logs',
   ];
-
-  const results = { success: [], failed: [] };
 
   for (const table of tables) {
     try {
-      const { error } = await sb.from(table).delete().neq('id', '00000000-0000-0000-0000-000000000000');
+      let query = sb.from(table).delete();
+      if (table === 'settings') {
+        query = query.neq('key', '___never___');
+      } else {
+        query = query.neq('id', '00000000-0000-0000-0000-000000000000');
+      }
+
+      const { error } = await query;
       if (error) {
         results.failed.push({ table, error: error.message });
       } else {
@@ -1132,7 +1253,7 @@ async function deleteAllData() {
 }
 
 /* ═══════════════════════════════════════════════════════════════
-   18. دوال مساعدة
+   22. دوال مساعدة
    ═══════════════════════════════════════════════════════════════ */
 
 async function getDashboardKPIs() {
@@ -1255,7 +1376,7 @@ async function getProductMovements(productId, fromDate = null, toDate = null) {
 }
 
 /* ═══════════════════════════════════════════════════════════════
-   19. التصدير العام
+   23. التصدير العام
    ═══════════════════════════════════════════════════════════════ */
 
 window.SB = {
@@ -1275,6 +1396,7 @@ window.SB = {
   getUser: authGetUser,
   getUserProfile,
   getUserPermissions,
+  createUserAccount,
   // Audit
   logAudit,
   // Numbers
@@ -1284,6 +1406,9 @@ window.SB = {
   // Composite
   createSale,
   approveSale,
+  approveWarehouseOrder,
+  rejectWarehouseOrder,
+  getPendingWarehouseOrders,
   createCustomerPayment,
   createSupplierPayment,
   stockOut,
@@ -1312,4 +1437,4 @@ window.SB = {
   getProductMovements
 };
 
-console.log('✅ supabase.js جاهز (محدّث)');
+console.log('✅ supabase.js جاهز (محدّث - موافقة مزدوجة)');
