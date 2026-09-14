@@ -82,10 +82,26 @@ const ICONS = {
 
 function formatCurrency(amount) {
   const num = Number(amount) || 0;
-  return new Intl.NumberFormat('ar-SD', {
+  const absNum = Math.abs(num);
+  
+  const formatted = new Intl.NumberFormat('en-US', {
     minimumFractionDigits: 0,
     maximumFractionDigits: 2
-  }).format(num) + ' ج.س';
+  }).format(absNum);
+  
+  if (num < 0) return '− ' + formatted + ' ج.س';
+  return formatted + ' ج.س';
+}
+
+function money(amount) {
+  const num = Number(amount) || 0;
+  const formatted = formatCurrency(num);
+  
+  let color = 'var(--text)';
+  if (num < 0) color = 'var(--danger)';
+  else if (num > 0) color = 'var(--success)';
+  
+  return `<span style="color:${color};font-weight:700;direction:ltr;unicode-bidi:embed;display:inline-block;">${formatted}</span>`;
 }
 
 function formatNumber(n) {
@@ -795,6 +811,7 @@ window.App = {
   routes: ROUTES,
   icons: ICONS,
   formatCurrency,
+  money,                    // ← أضف هذا السطر
   formatNumber,
   formatDate,
   formatDateTime,
