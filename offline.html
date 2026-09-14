@@ -1,0 +1,239 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>غير متصل - نظام قسم الحبل</title>
+  <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;800&display=swap" rel="stylesheet" />
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: 'Cairo', sans-serif;
+      background: #0f172a;
+      color: #f8fafc;
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 24px;
+      direction: rtl;
+      background-image:
+        radial-gradient(circle at 0% 0%, rgba(59, 130, 246, 0.15), transparent 40%),
+        radial-gradient(circle at 100% 100%, rgba(245, 158, 11, 0.08), transparent 40%);
+    }
+
+    .offline-card {
+      max-width: 500px;
+      width: 100%;
+      text-align: center;
+      padding: 40px 32px;
+      background: rgba(255, 255, 255, 0.05);
+      backdrop-filter: blur(20px);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      border-radius: 24px;
+      box-shadow: 0 16px 48px rgba(0, 0, 0, 0.35);
+      animation: slideUp 500ms ease;
+    }
+
+    @keyframes slideUp {
+      from { opacity: 0; transform: translateY(30px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    .offline-icon {
+      width: 100px;
+      height: 100px;
+      margin: 0 auto 24px;
+      background: rgba(245, 158, 11, 0.15);
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      animation: pulse 2s ease-in-out infinite;
+    }
+
+    @keyframes pulse {
+      0%, 100% { transform: scale(1); }
+      50% { transform: scale(1.05); }
+    }
+
+    .offline-icon svg {
+      width: 50px;
+      height: 50px;
+      color: #f59e0b;
+    }
+
+    h1 {
+      font-size: 24px;
+      font-weight: 800;
+      color: #f8fafc;
+      margin-bottom: 12px;
+    }
+
+    p {
+      color: #94a3b8;
+      font-size: 14px;
+      line-height: 1.8;
+      margin-bottom: 24px;
+    }
+
+    .btn-retry {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 14px 28px;
+      background: linear-gradient(135deg, #1e3a8a, #3b82f6);
+      color: white;
+      border: none;
+      border-radius: 12px;
+      font-family: inherit;
+      font-size: 15px;
+      font-weight: 700;
+      cursor: pointer;
+      transition: all 0.2s;
+      box-shadow: 0 4px 16px rgba(59, 130, 246, 0.4);
+    }
+
+    .btn-retry:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 6px 24px rgba(59, 130, 246, 0.6);
+    }
+
+    .btn-retry:active {
+      transform: scale(0.97);
+    }
+
+    .btn-retry svg {
+      width: 18px;
+      height: 18px;
+    }
+
+    .connection-status {
+      margin-top: 24px;
+      padding: 12px;
+      background: rgba(239, 68, 68, 0.1);
+      border: 1px solid rgba(239, 68, 68, 0.3);
+      border-radius: 10px;
+      font-size: 12px;
+      color: #f87171;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+    }
+
+    .connection-status.online {
+      background: rgba(16, 185, 129, 0.1);
+      border-color: rgba(16, 185, 129, 0.3);
+      color: #34d399;
+    }
+
+    .dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: currentColor;
+      animation: blink 1.5s infinite;
+    }
+
+    @keyframes blink {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.4; }
+    }
+
+    .footer {
+      margin-top: 32px;
+      padding-top: 20px;
+      border-top: 1px solid rgba(255, 255, 255, 0.1);
+      color: #64748b;
+      font-size: 11px;
+    }
+  </style>
+</head>
+<body>
+
+  <div class="offline-card">
+    <div class="offline-icon">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <line x1="1" y1="1" x2="23" y2="23"/>
+        <path d="M16.72 11.06A10.94 10.94 0 0 1 19 12.55"/>
+        <path d="M5 12.55a10.94 10.94 0 0 1 5.17-2.39"/>
+        <path d="M10.71 5.05A16 16 0 0 1 22.58 9"/>
+        <path d="M1.42 9a15.91 15.91 0 0 1 4.7-2.88"/>
+        <path d="M8.53 16.11a6 6 0 0 1 6.95 0"/>
+        <line x1="12" y1="20" x2="12.01" y2="20"/>
+      </svg>
+    </div>
+
+    <h1>لا يوجد اتصال بالإنترنت</h1>
+    <p>
+      يبدو أن الجهاز غير متصل بالإنترنت حالياً.<br>
+      النظام يحتاج اتصال للوصول إلى البيانات.<br>
+      يرجى التحقق من الاتصال والمحاولة مرة أخرى.
+    </p>
+
+    <button class="btn-retry" onclick="checkConnectionAndReload()">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <polyline points="23 4 23 10 17 10"/>
+        <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/>
+      </svg>
+      إعادة المحاولة
+    </button>
+
+    <div class="connection-status" id="status-box">
+      <span class="dot"></span>
+      <span id="status-text">جاري فحص الاتصال...</span>
+    </div>
+
+    <div class="footer">
+      نظام قسم الحبل - مصنع الصندل للأوعية البلاستيكية © 2026
+    </div>
+  </div>
+
+  <script>
+    function updateStatus() {
+      const box = document.getElementById('status-box');
+      const text = document.getElementById('status-text');
+
+      if (navigator.onLine) {
+        box.classList.add('online');
+        text.textContent = 'الاتصال متوفر — جاري إعادة التوجيه...';
+        setTimeout(() => {
+          window.location.href = './index.html';
+        }, 1000);
+      } else {
+        box.classList.remove('online');
+        text.textContent = 'لا يوجد اتصال بالإنترنت';
+      }
+    }
+
+    function checkConnectionAndReload() {
+      updateStatus();
+      if (navigator.onLine) {
+        window.location.reload();
+      } else {
+        alert('لا يوجد اتصال بعد. تأكد من الإنترنت.');
+      }
+    }
+
+    // فحص دوري
+    updateStatus();
+    window.addEventListener('online', updateStatus);
+    window.addEventListener('offline', () => {
+      document.getElementById('status-box').classList.remove('online');
+      document.getElementById('status-text').textContent = 'لا يوجد اتصال بالإنترنت';
+    });
+
+    // فحص كل 5 ثوانٍ
+    setInterval(() => {
+      if (navigator.onLine) updateStatus();
+    }, 5000);
+  </script>
+
+</body>
+</html>

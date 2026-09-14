@@ -1,0 +1,377 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <meta name="theme-color" content="#1e3a8a" />
+  <title>نظام إدارة قسم الحبل - مصنع الصندل</title>
+
+  <!-- ═══════════ PWA ═══════════ -->
+  <link rel="manifest" href="manifest.json" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="قسم الحبل" />
+  <meta name="application-name" content="قسم الحبل" />
+  
+  <!-- Favicon (SVG مدمج - لا يحتاج ملف) -->
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 512 512'%3E%3Crect width='512' height='512' rx='100' fill='%231e3a8a'/%3E%3Ccircle cx='256' cy='256' r='180' fill='none' stroke='%233b82f6' stroke-width='8'/%3E%3Ctext x='256' y='330' text-anchor='middle' font-family='sans-serif' font-size='220' font-weight='800' fill='%23f59e0b'%3E%D8%AD%3C/text%3E%3C/svg%3E" />
+  <link rel="apple-touch-icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 512 512'%3E%3Crect width='512' height='512' rx='100' fill='%231e3a8a'/%3E%3Ccircle cx='256' cy='256' r='180' fill='none' stroke='%233b82f6' stroke-width='8'/%3E%3Ctext x='256' y='330' text-anchor='middle' font-family='sans-serif' font-size='220' font-weight='800' fill='%23f59e0b'%3E%D8%AD%3C/text%3E%3C/svg%3E" />
+
+  <!-- ═══════════ Fonts ═══════════ -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet" />
+
+  <!-- ═══════════ Supabase SDK ═══════════ -->
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+
+  <!-- ═══════════ Styles ═══════════ -->
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+
+  <!-- ═══════════ Splash ═══════════ -->
+  <div id="splash" class="splash">
+    <div class="splash-logo">
+      <svg viewBox="0 0 100 100" width="80" height="80">
+        <defs>
+          <linearGradient id="splashGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+            <stop offset="0%" stop-color="#3b82f6"/>
+            <stop offset="100%" stop-color="#f59e0b"/>
+          </linearGradient>
+        </defs>
+        <circle cx="50" cy="50" r="45" fill="none" stroke="url(#splashGrad)" stroke-width="3" opacity="0.3"/>
+        <circle cx="50" cy="50" r="35" fill="none" stroke="url(#splashGrad)" stroke-width="4" stroke-dasharray="10 5" stroke-linecap="round">
+          <animateTransform attributeName="transform" type="rotate" from="0 50 50" to="360 50 50" dur="3s" repeatCount="indefinite"/>
+        </circle>
+        <text x="50" y="58" text-anchor="middle" font-family="Cairo" font-size="26" font-weight="800" fill="url(#splashGrad)">ح</text>
+      </svg>
+    </div>
+    <h1 class="splash-title">نظام قسم الحبل</h1>
+    <p class="splash-subtitle">مصنع الصندل للأوعية البلاستيكية</p>
+    <div class="splash-bar"><div class="splash-bar-fill"></div></div>
+  </div>
+
+  <!-- ═══════════ Login ═══════════ -->
+  <div id="login-screen" class="login-screen hidden">
+    <div class="login-bg">
+      <div class="login-blob login-blob-1"></div>
+      <div class="login-blob login-blob-2"></div>
+      <div class="login-blob login-blob-3"></div>
+    </div>
+
+    <div class="login-container">
+      <div class="login-card glass">
+        <div class="login-logo">
+          <svg viewBox="0 0 100 100" width="64" height="64">
+            <defs>
+              <linearGradient id="loginGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+                <stop offset="0%" stop-color="#3b82f6"/>
+                <stop offset="100%" stop-color="#f59e0b"/>
+              </linearGradient>
+            </defs>
+            <circle cx="50" cy="50" r="46" fill="none" stroke="url(#loginGrad)" stroke-width="3"/>
+            <text x="50" y="62" text-anchor="middle" font-family="Cairo" font-size="34" font-weight="800" fill="url(#loginGrad)">ح</text>
+          </svg>
+        </div>
+        <h1 class="login-title">نظام قسم الحبل</h1>
+        <p class="login-subtitle">مصنع الصندل للأوعية البلاستيكية</p>
+
+        <form id="login-form" class="login-form" autocomplete="on">
+          <div class="input-group">
+            <label for="login-email">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/>
+                <polyline points="22,6 12,13 2,6"/>
+              </svg>
+              البريد الإلكتروني
+            </label>
+            <input type="email" id="login-email" placeholder="admin@sandal.com" required />
+          </div>
+
+          <div class="input-group">
+            <label for="login-password">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
+                <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+              </svg>
+              كلمة المرور
+            </label>
+            <div class="password-wrap">
+              <input type="password" id="login-password" placeholder="••••••••" required />
+              <button type="button" class="toggle-password" id="toggle-password" aria-label="إظهار كلمة المرور">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
+                  <circle cx="12" cy="12" r="3"/>
+                </svg>
+              </button>
+            </div>
+          </div>
+
+          <button type="submit" class="btn btn-primary btn-block" id="login-btn">
+            <span class="btn-text">تسجيل الدخول</span>
+            <span class="btn-loader hidden">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <circle cx="12" cy="12" r="10" opacity="0.25"/>
+                <path d="M12 2a10 10 0 0 1 10 10">
+                  <animateTransform attributeName="transform" type="rotate" from="0 12 12" to="360 12 12" dur="1s" repeatCount="indefinite"/>
+                </path>
+              </svg>
+            </span>
+          </button>
+
+          <div id="login-error" class="login-error hidden"></div>
+        </form>
+
+        <p class="login-footer">© 2026 مصنع الصندل - جميع الحقوق محفوظة</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══════════ App ═══════════ -->
+  <div id="app" class="app hidden">
+
+    <aside id="sidebar" class="sidebar">
+      <div class="sidebar-header">
+        <div class="sidebar-logo">
+          <svg viewBox="0 0 100 100" width="36" height="36">
+            <defs>
+              <linearGradient id="sbGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+                <stop offset="0%" stop-color="#3b82f6"/>
+                <stop offset="100%" stop-color="#f59e0b"/>
+              </linearGradient>
+            </defs>
+            <circle cx="50" cy="50" r="45" fill="none" stroke="url(#sbGrad)" stroke-width="4"/>
+            <text x="50" y="63" text-anchor="middle" font-family="Cairo" font-size="32" font-weight="800" fill="url(#sbGrad)">ح</text>
+          </svg>
+        </div>
+        <div class="sidebar-brand">
+          <h2>قسم الحبل</h2>
+          <span>مصنع الصندل</span>
+        </div>
+      </div>
+
+      <nav class="sidebar-nav" id="sidebar-nav"></nav>
+
+      <div class="sidebar-footer">
+        <div class="user-card">
+          <div class="user-avatar" id="user-avatar">م</div>
+          <div class="user-info">
+            <div class="user-name" id="user-name">المستخدم</div>
+            <div class="user-role" id="user-role">مستخدم</div>
+          </div>
+          <button class="logout-btn" id="logout-btn" title="تسجيل الخروج">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/>
+              <polyline points="16 17 21 12 16 7"/>
+              <line x1="21" y1="12" x2="9" y2="12"/>
+            </svg>
+          </button>
+        </div>
+      </div>
+    </aside>
+
+    <main class="main">
+      <header class="topbar">
+        <button class="menu-toggle" id="menu-toggle" aria-label="القائمة">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <line x1="3" y1="6" x2="21" y2="6"/>
+            <line x1="3" y1="12" x2="21" y2="12"/>
+            <line x1="3" y1="18" x2="21" y2="18"/>
+          </svg>
+        </button>
+
+        <div class="topbar-title">
+          <h1 id="page-title">لوحة التحكم</h1>
+          <span id="page-subtitle">نظرة عامة على النظام</span>
+        </div>
+
+        <div class="topbar-actions">
+          <div id="online-status" class="online-badge online" title="حالة الاتصال">
+            <span class="online-dot"></span>
+            <span class="online-text">متصل</span>
+          </div>
+
+          <button class="icon-btn" id="global-search-btn" title="بحث شامل (Ctrl+K)">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <circle cx="11" cy="11" r="8"/>
+              <line x1="21" y1="21" x2="16.65" y2="16.65"/>
+            </svg>
+          </button>
+          <button class="icon-btn" id="refresh-btn" title="تحديث البيانات">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <polyline points="23 4 23 10 17 10"/>
+              <polyline points="1 20 1 14 7 14"/>
+              <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>
+            </svg>
+          </button>
+          <button class="icon-btn" id="install-btn" title="تثبيت التطبيق" style="display:none;">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+              <polyline points="7 10 12 15 17 10"/>
+              <line x1="12" y1="15" x2="12" y2="3"/>
+            </svg>
+          </button>
+          <button class="icon-btn" id="theme-toggle" title="تبديل المظهر">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
+            </svg>
+          </button>
+        </div>
+      </header>
+
+      <section id="content" class="content">
+        <div class="skeleton-wrap" id="skeleton-loader">
+          <div class="skeleton skeleton-card"></div>
+          <div class="skeleton skeleton-card"></div>
+          <div class="skeleton skeleton-card"></div>
+        </div>
+      </section>
+    </main>
+
+    <nav class="mobile-nav" id="mobile-nav"></nav>
+  </div>
+
+  <!-- ═══════════ Modal ═══════════ -->
+  <div id="modal-overlay" class="modal-overlay hidden">
+    <div class="modal" id="modal-box">
+      <div class="modal-header">
+        <h3 id="modal-title">عنوان النافذة</h3>
+        <button class="modal-close" id="modal-close" aria-label="إغلاق">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <line x1="18" y1="6" x2="6" y2="18"/>
+            <line x1="6" y1="6" x2="18" y2="18"/>
+          </svg>
+        </button>
+      </div>
+      <div class="modal-body" id="modal-body"></div>
+      <div class="modal-footer" id="modal-footer"></div>
+    </div>
+  </div>
+
+  <!-- ═══════════ Bottom Sheet ═══════════ -->
+  <div id="sheet-overlay" class="sheet-overlay hidden">
+    <div class="bottom-sheet" id="bottom-sheet">
+      <div class="sheet-handle"></div>
+      <div class="sheet-body" id="sheet-body"></div>
+    </div>
+  </div>
+
+  <!-- ═══════════ Global Search ═══════════ -->
+  <div id="search-overlay" class="modal-overlay hidden">
+    <div class="search-modal">
+      <div class="search-input-wrap">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <circle cx="11" cy="11" r="8"/>
+          <line x1="21" y1="21" x2="16.65" y2="16.65"/>
+        </svg>
+        <input type="text" id="global-search-input" placeholder="ابحث في النظام... (منتجات، عملاء، فواتير)" />
+        <button class="modal-close" id="search-close">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <line x1="18" y1="6" x2="6" y2="18"/>
+            <line x1="6" y1="6" x2="18" y2="18"/>
+          </svg>
+        </button>
+      </div>
+      <div class="search-results" id="search-results">
+        <div class="search-empty">اكتب للبحث في: المنتجات، العملاء، الموردين، الفواتير...</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══════════ Toast ═══════════ -->
+  <div id="toast-container" class="toast-container"></div>
+
+  <!-- ═══════════ Confirm ═══════════ -->
+  <div id="confirm-overlay" class="modal-overlay hidden">
+    <div class="confirm-dialog">
+      <div class="confirm-icon" id="confirm-icon"></div>
+      <h3 id="confirm-title">تأكيد العملية</h3>
+      <p id="confirm-message">هل أنت متأكد؟</p>
+      <div class="confirm-actions">
+        <button class="btn btn-ghost" id="confirm-cancel">إلغاء</button>
+        <button class="btn btn-danger" id="confirm-ok">تأكيد</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══════════ Scripts ═══════════ -->
+  <script src="supabase.js"></script>
+  <script src="app.js"></script>
+  <script src="modules.js"></script>
+  <script src="returns.js"></script>
+  <script src="advanced.js"></script>
+  <script src="reports.js"></script>
+
+  <!-- ═══════════ PWA + Online Status ═══════════ -->
+  <script>
+    // ═══ تسجيل Service Worker ═══
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', () => {
+        navigator.serviceWorker.register('./sw.js')
+          .then((registration) => {
+            console.log('✅ Service Worker مسجل:', registration.scope);
+          })
+          .catch((error) => {
+            console.warn('⚠️ Service Worker:', error);
+          });
+      });
+    }
+
+    // ═══ زر التثبيت ═══
+    let deferredPrompt = null;
+
+    window.addEventListener('beforeinstallprompt', (e) => {
+      e.preventDefault();
+      deferredPrompt = e;
+      const installBtn = document.getElementById('install-btn');
+      if (installBtn) installBtn.style.display = 'flex';
+      console.log('✅ التطبيق قابل للتثبيت');
+    });
+
+    document.getElementById('install-btn')?.addEventListener('click', async () => {
+      if (deferredPrompt) {
+        deferredPrompt.prompt();
+        const { outcome } = await deferredPrompt.userChoice;
+        if (outcome === 'accepted') {
+          console.log('✅ تم تثبيت التطبيق');
+        }
+        deferredPrompt = null;
+        document.getElementById('install-btn').style.display = 'none';
+      } else {
+        alert('لتثبيت التطبيق:\n\n1. اضغط على ⋮ (ثلاث نقاط) في المتصفح\n2. اختر "تثبيت قسم الحبل" أو "Install app"\n\nأو انتظر حتى تظهر أيقونة 📥 في شريط العنوان');
+      }
+    });
+
+    // ═══ مراقبة الاتصال ═══
+    function updateOnlineStatus() {
+      const statusEl = document.getElementById('online-status');
+      if (!statusEl) return;
+
+      if (navigator.onLine) {
+        statusEl.classList.remove('offline');
+        statusEl.classList.add('online');
+        statusEl.querySelector('.online-text').textContent = 'متصل';
+      } else {
+        statusEl.classList.remove('online');
+        statusEl.classList.add('offline');
+        statusEl.querySelector('.online-text').textContent = 'غير متصل';
+      }
+    }
+
+    window.addEventListener('online', updateOnlineStatus);
+    window.addEventListener('offline', updateOnlineStatus);
+    updateOnlineStatus();
+
+    let wasOffline = false;
+    window.addEventListener('offline', () => { wasOffline = true; });
+    window.addEventListener('online', () => {
+      if (wasOffline) {
+        setTimeout(() => window.location.reload(), 500);
+      }
+    });
+  </script>
+
+</body>
+</html>

@@ -1,0 +1,50 @@
+{
+  "name": "نظام قسم الحبل - مصنع الصندل",
+  "short_name": "قسم الحبل",
+  "description": "نظام إدارة متكامل لقسم الحبل - مصنع الصندل للأوعية البلاستيكية",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "display_override": ["standalone", "minimal-ui"],
+  "background_color": "#0f172a",
+  "theme_color": "#1e3a8a",
+  "orientation": "any",
+  "dir": "rtl",
+  "lang": "ar-SA",
+  "categories": ["business", "productivity"],
+  "prefer_related_applications": false,
+  "icons": [
+    {
+      "src": "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 512 512'%3E%3Crect width='512' height='512' rx='100' fill='%231e3a8a'/%3E%3Ccircle cx='256' cy='256' r='180' fill='none' stroke='%233b82f6' stroke-width='8'/%3E%3Ctext x='256' y='330' text-anchor='middle' font-family='sans-serif' font-size='220' font-weight='800' fill='%23f59e0b'%3E%D8%AD%3C/text%3E%3C/svg%3E",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    },
+    {
+      "src": "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 512 512'%3E%3Crect width='512' height='512' fill='%231e3a8a'/%3E%3Ctext x='256' y='340' text-anchor='middle' font-family='sans-serif' font-size='280' font-weight='800' fill='%23f59e0b'%3E%D8%AD%3C/text%3E%3C/svg%3E",
+      "sizes": "512x512",
+      "type": "image/svg+xml",
+      "purpose": "maskable"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "المبيعات",
+      "short_name": "مبيعات",
+      "description": "فتح شاشة المبيعات",
+      "url": "./index.html#sales"
+    },
+    {
+      "name": "المخزن",
+      "short_name": "مخزن",
+      "description": "فتح شاشة المخزن",
+      "url": "./index.html#warehouse"
+    },
+    {
+      "name": "التقارير",
+      "short_name": "تقارير",
+      "description": "فتح شاشة التقارير",
+      "url": "./index.html#reports"
+    }
+  ]
+}
