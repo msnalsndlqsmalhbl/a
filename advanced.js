@@ -13,6 +13,7 @@
 
 async function renderJournal(container) {
   try {
+    if (!container) return;
     container.innerHTML = `
       <div class="page-header">
         <div class="page-header-info"><h2>القيود والقوائم المالية</h2><p>دفتر اليومية والقوائم المالية</p></div>
@@ -69,7 +70,7 @@ async function renderJournal(container) {
     });
     document.getElementById('journal-export-btn')?.addEventListener('click', exportJournalExcel);
   } catch (err) {
-    container.innerHTML = `<div class="empty-state"><h3>خطأ</h3><p>${window.App.escapeHtml(err.message)}</p></div>`;
+    if (container) container.innerHTML = `<div class="empty-state"><h3>خطأ</h3><p>${window.App.escapeHtml(err.message)}</p></div>`;
   }
 }
 
@@ -81,6 +82,9 @@ function adjustAdvancedGrid() {
 
 async function loadIncomeStatement() {
   try {
+    const incomeEl = document.getElementById('income-statement');
+    if (!incomeEl) return;
+
     const from = document.getElementById('jv-from')?.value;
     const to = document.getElementById('jv-to')?.value;
 
@@ -119,7 +123,8 @@ async function loadIncomeStatement() {
     const netRevenue = revenue - returnsTotal;
     const netProfit = netRevenue - costOfSales - totalExpenses;
 
-    document.getElementById('income-statement').innerHTML = `
+    if (!incomeEl) return;
+    incomeEl.innerHTML = `
       <div style="padding:10px 0;">
         ${incomeRow('الإيرادات', revenue, 'success')}
         ${returnsTotal > 0 ? incomeRow('(-) المرتجعات', -returnsTotal, 'danger') : ''}
@@ -137,7 +142,7 @@ async function loadIncomeStatement() {
       </div>
     `;
   } catch (err) {
-    document.getElementById('income-statement').innerHTML = `<p style="color:var(--danger);padding:20px;">خطأ: ${window.App.escapeHtml(err.message)}</p>`;
+    console.warn('income statement:', err);
   }
 }
 
@@ -153,6 +158,9 @@ function incomeRow(label, value, color, bold = false) {
 
 async function loadCashFlow() {
   try {
+    const cfEl = document.getElementById('cash-flow');
+    if (!cfEl) return;
+
     const from = document.getElementById('jv-from')?.value;
     const to = document.getElementById('jv-to')?.value;
 
@@ -189,7 +197,8 @@ async function loadCashFlow() {
     const closingBalance = currentTotal;
     const openingBalance = closingBalance - operatingFlow;
 
-    document.getElementById('cash-flow').innerHTML = `
+    if (!cfEl) return;
+    cfEl.innerHTML = `
       <div style="padding:10px 0;">
         ${incomeRow('تدفقات داخلة', totalIn, 'success')}
         ${incomeRow('(-) تدفقات خارجة', -totalOut, 'danger')}
@@ -213,12 +222,15 @@ async function loadCashFlow() {
       </div>
     `;
   } catch (err) {
-    document.getElementById('cash-flow').innerHTML = `<p style="color:var(--danger);padding:20px;">خطأ: ${window.App.escapeHtml(err.message)}</p>`;
+    console.warn('cash flow:', err);
   }
 }
 
 async function loadBalanceSheet() {
   try {
+    const bsEl = document.getElementById('balance-sheet');
+    if (!bsEl) return;
+
     const cash = await window.SB.getCashBalance();
     const bank = await window.SB.getBankBalance();
     const extra = await window.SB.getExtraBoxesBalance();
@@ -236,7 +248,8 @@ async function loadBalanceSheet() {
 
     const equity = totalAssets - payables;
 
-    document.getElementById('balance-sheet').innerHTML = `
+    if (!bsEl) return;
+    bsEl.innerHTML = `
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;" class="dashboard-grid">
         <div>
           <h4 style="font-size:14px;font-weight:700;color:var(--primary-2);margin-bottom:12px;">الأصول</h4>
@@ -265,13 +278,14 @@ async function loadBalanceSheet() {
       </div>
     `;
   } catch (err) {
-    document.getElementById('balance-sheet').innerHTML = `<p style="color:var(--danger);padding:20px;">خطأ: ${window.App.escapeHtml(err.message)}</p>`;
+    console.warn('balance sheet:', err);
   }
 }
 
 async function loadJournalEntries() {
   try {
     const listEl = document.getElementById('journal-entries');
+    if (!listEl) return;
     listEl.innerHTML = '<div class="skeleton skeleton-card" style="height:200px;"></div>';
 
     const from = document.getElementById('jv-from')?.value;
@@ -283,6 +297,7 @@ async function loadJournalEntries() {
 
     const { data: entries } = await window.SB.select('journal_entries', opts);
 
+    if (!listEl) return;
     if (!entries.length) { listEl.innerHTML = window.Modules.emptyState('لا توجد قيود في هذه الفترة'); return; }
 
     const entriesWithLines = await Promise.all(entries.map(async (e) => {
@@ -294,6 +309,7 @@ async function loadJournalEntries() {
       return { ...e, lines: lines || [], totalDebit, totalCredit };
     }));
 
+    if (!listEl) return;
     listEl.innerHTML = entriesWithLines.map(e => `
       <div style="background:rgba(255,255,255,0.03);border:1px solid var(--border);border-radius:12px;padding:14px;margin-bottom:12px;">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;flex-wrap:wrap;gap:8px;">
@@ -327,7 +343,8 @@ async function loadJournalEntries() {
       </div>
     `).join('');
   } catch (err) {
-    document.getElementById('journal-entries').innerHTML = `<p style="color:var(--danger);padding:20px;">خطأ: ${window.App.escapeHtml(err.message)}</p>`;
+    const listEl = document.getElementById('journal-entries');
+    if (listEl) listEl.innerHTML = `<p style="color:var(--danger);padding:20px;">خطأ: ${window.App.escapeHtml(err.message)}</p>`;
   }
 }
 
@@ -374,6 +391,7 @@ async function openManualEntryModal() {
 }
 
 function addJournalLine(container, accounts) {
+  if (!container) return;
   const row = document.createElement('div');
   row.className = 'jv-line';
   row.style.cssText = 'display:grid;grid-template-columns:2fr 1fr 1fr 36px;gap:8px;align-items:end;padding:8px;background:rgba(255,255,255,0.03);border-radius:8px;';
@@ -408,14 +426,18 @@ function recalcJournalTotals() {
     totalDebit += Number(l.querySelector('.jv-debit').value) || 0;
     totalCredit += Number(l.querySelector('.jv-credit').value) || 0;
   });
-  document.getElementById('jv-debit-total').textContent = window.App.formatCurrency(totalDebit);
-  document.getElementById('jv-credit-total').textContent = window.App.formatCurrency(totalCredit);
+  const debitEl = document.getElementById('jv-debit-total');
+  const creditEl = document.getElementById('jv-credit-total');
+  if (debitEl) debitEl.textContent = window.App.formatCurrency(totalDebit);
+  if (creditEl) creditEl.textContent = window.App.formatCurrency(totalCredit);
 
   const status = document.getElementById('jv-balance-status');
-  if (Math.abs(totalDebit - totalCredit) < 0.01 && totalDebit > 0) {
-    status.innerHTML = '<span class="badge badge-success">متوازن ✓</span>';
-  } else {
-    status.innerHTML = `<span class="badge badge-danger">غير متوازن (فرق: ${window.App.formatCurrency(Math.abs(totalDebit - totalCredit))})</span>`;
+  if (status) {
+    if (Math.abs(totalDebit - totalCredit) < 0.01 && totalDebit > 0) {
+      status.innerHTML = '<span class="badge badge-success">متوازن ✓</span>';
+    } else {
+      status.innerHTML = `<span class="badge badge-danger">غير متوازن (فرق: ${window.App.formatCurrency(Math.abs(totalDebit - totalCredit))})</span>`;
+    }
   }
 }
 
@@ -482,6 +504,7 @@ async function exportJournalExcel() {
 
 async function renderReconciliations(container) {
   try {
+    if (!container) return;
     const [cash, bank] = await Promise.all([window.SB.getCashBalance(), window.SB.getBankBalance()]);
 
     container.innerHTML = `
@@ -508,32 +531,38 @@ async function renderReconciliations(container) {
     await loadReconciliationsList();
     document.getElementById('new-rec-btn')?.addEventListener('click', openReconciliationModal);
   } catch (err) {
-    container.innerHTML = `<div class="empty-state"><h3>خطأ</h3><p>${window.App.escapeHtml(err.message)}</p></div>`;
+    if (container) container.innerHTML = `<div class="empty-state"><h3>خطأ</h3><p>${window.App.escapeHtml(err.message)}</p></div>`;
   }
 }
 
 async function loadReconciliationsList() {
-  const { data } = await window.SB.select('reconciliations', { order: { column: 'created_at', ascending: false }, limit: 50 });
-  const el = document.getElementById('rec-list');
+  try {
+    const { data } = await window.SB.select('reconciliations', { order: { column: 'created_at', ascending: false }, limit: 50 });
+    const el = document.getElementById('rec-list');
+    if (!el) return;
 
-  if (!data.length) { el.innerHTML = window.Modules.emptyState('لا توجد تسويات'); return; }
+    if (!data.length) { el.innerHTML = window.Modules.emptyState('لا توجد تسويات'); return; }
 
-  el.innerHTML = `
-    <div class="table-wrap" style="background:transparent;border:none;">
-      <table class="responsive">
-        <thead><tr><th>النوع</th><th>المتوقع</th><th>الفعلي</th><th>الفرق</th><th>السبب</th><th>التاريخ</th></tr></thead>
-        <tbody>${data.map(r => `
-          <tr>
-            <td data-label="النوع">${r.type === 'cash' ? 'كاش' : 'بنك'}</td>
-            <td data-label="المتوقع">${window.App.formatCurrency(r.expected)}</td>
-            <td data-label="الفعلي">${window.App.formatCurrency(r.actual)}</td>
-            <td data-label="الفرق" class="${r.difference > 0 ? 'text-success' : r.difference < 0 ? 'text-danger' : ''}">${window.App.formatCurrency(r.difference)}</td>
-            <td data-label="السبب">${window.App.escapeHtml(r.reason || '—')}</td>
-            <td data-label="التاريخ">${window.App.formatDate(r.created_at)}</td>
-          </tr>`).join('')}
-        </tbody>
-      </table>
-    </div>`;
+    el.innerHTML = `
+      <div class="table-wrap" style="background:transparent;border:none;">
+        <table class="responsive">
+          <thead><tr><th>النوع</th><th>المتوقع</th><th>الفعلي</th><th>الفرق</th><th>السبب</th><th>التاريخ</th></tr></thead>
+          <tbody>${data.map(r => `
+            <tr>
+              <td data-label="النوع">${r.type === 'cash' ? 'كاش' : 'بنك'}</td>
+              <td data-label="المتوقع">${window.App.formatCurrency(r.expected)}</td>
+              <td data-label="الفعلي">${window.App.formatCurrency(r.actual)}</td>
+              <td data-label="الفرق" class="${r.difference > 0 ? 'text-success' : r.difference < 0 ? 'text-danger' : ''}">${window.App.formatCurrency(r.difference)}</td>
+              <td data-label="السبب">${window.App.escapeHtml(r.reason || '—')}</td>
+              <td data-label="التاريخ">${window.App.formatDate(r.created_at)}</td>
+            </tr>`).join('')}
+          </tbody>
+        </table>
+      </div>`;
+  } catch (err) {
+    const el = document.getElementById('rec-list');
+    if (el) el.innerHTML = `<div class="empty-state"><p>${window.App.escapeHtml(err.message)}</p></div>`;
+  }
 }
 
 async function openReconciliationModal() {
@@ -567,8 +596,10 @@ async function openReconciliationModal() {
     const actual = Number(actualInput.value) || 0;
     const diff = actual - expected;
     const el = document.getElementById('rec-diff-val');
-    el.textContent = window.App.formatCurrency(diff);
-    el.style.color = diff > 0 ? 'var(--success)' : diff < 0 ? 'var(--danger)' : 'var(--text-2)';
+    if (el) {
+      el.textContent = window.App.formatCurrency(diff);
+      el.style.color = diff > 0 ? 'var(--success)' : diff < 0 ? 'var(--danger)' : 'var(--text-2)';
+    }
   };
 
   typeSelect.addEventListener('change', updateDiff);
@@ -601,6 +632,7 @@ async function openReconciliationModal() {
 
 async function renderAudit(container) {
   try {
+    if (!container) return;
     container.innerHTML = `
       <div class="page-header">
         <div class="page-header-info"><h2>سجل التدقيق</h2><p>كل عمليات النظام</p></div>
@@ -634,19 +666,20 @@ async function renderAudit(container) {
     document.getElementById('audit-filter-btn')?.addEventListener('click', loadAuditList);
     document.getElementById('audit-export-btn')?.addEventListener('click', exportAuditExcel);
   } catch (err) {
-    container.innerHTML = `<div class="empty-state"><h3>خطأ</h3><p>${window.App.escapeHtml(err.message)}</p></div>`;
+    if (container) container.innerHTML = `<div class="empty-state"><h3>خطأ</h3><p>${window.App.escapeHtml(err.message)}</p></div>`;
   }
 }
 
 async function loadAuditList() {
   try {
     const listEl = document.getElementById('audit-list');
+    if (!listEl) return;
     listEl.innerHTML = '<div class="skeleton skeleton-card" style="height:200px;"></div>';
 
-    const from = document.getElementById('audit-from').value;
-    const to = document.getElementById('audit-to').value;
-    const action = document.getElementById('audit-action').value;
-    const module = document.getElementById('audit-module').value.trim();
+    const from = document.getElementById('audit-from')?.value;
+    const to = document.getElementById('audit-to')?.value;
+    const action = document.getElementById('audit-action')?.value;
+    const module = document.getElementById('audit-module')?.value.trim();
 
     const opts = { order: { column: 'created_at', ascending: false }, limit: 200 };
     if (from) opts.gte = { created_at: from };
@@ -656,6 +689,7 @@ async function loadAuditList() {
 
     const { data } = await window.SB.select('audit_logs', opts);
 
+    if (!listEl) return;
     if (!data.length) { listEl.innerHTML = window.Modules.emptyState('لا توجد سجلات'); return; }
 
     listEl.innerHTML = `
@@ -676,7 +710,8 @@ async function loadAuditList() {
         </table>
       </div>`;
   } catch (err) {
-    document.getElementById('audit-list').innerHTML = `<div class="empty-state"><p>${window.App.escapeHtml(err.message)}</p></div>`;
+    const listEl = document.getElementById('audit-list');
+    if (listEl) listEl.innerHTML = `<div class="empty-state"><p>${window.App.escapeHtml(err.message)}</p></div>`;
   }
 }
 
@@ -730,6 +765,7 @@ const MODULES_LIST = [
 
 async function renderPermissions(container) {
   try {
+    if (!container) return;
     if (window.App.state.role !== 'admin') {
       container.innerHTML = `<div class="empty-state"><h3>غير مصرح</h3><p>هذه الشاشة للمدير فقط</p></div>`;
       return;
@@ -758,41 +794,47 @@ async function renderPermissions(container) {
     await loadUsersList();
     document.getElementById('add-user-btn')?.addEventListener('click', openAddUserModal);
   } catch (err) {
-    container.innerHTML = `<div class="empty-state"><h3>خطأ</h3><p>${window.App.escapeHtml(err.message)}</p></div>`;
+    if (container) container.innerHTML = `<div class="empty-state"><h3>خطأ</h3><p>${window.App.escapeHtml(err.message)}</p></div>`;
   }
 }
 
 async function loadUsersList() {
-  const { data: users } = await window.SB.select('users', { order: { column: 'created_at', ascending: false } });
-  const el = document.getElementById('users-list');
+  try {
+    const { data: users } = await window.SB.select('users', { order: { column: 'created_at', ascending: false } });
+    const el = document.getElementById('users-list');
+    if (!el) return;
 
-  if (!users.length) { el.innerHTML = window.Modules.emptyState('لا يوجد مستخدمون'); return; }
+    if (!users.length) { el.innerHTML = window.Modules.emptyState('لا يوجد مستخدمون'); return; }
 
-  el.innerHTML = users.map(u => `
-    <div class="card" style="margin-bottom:12px;">
-      <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px;">
-        <div>
-          <div style="font-weight:700;font-size:14px;">${window.App.escapeHtml(u.full_name)}</div>
-          <div style="color:var(--text-3);font-size:12px;">${window.App.escapeHtml(u.email)}</div>
-          <div style="margin-top:6px;">
-            <span class="badge ${u.role === 'admin' ? 'badge-danger' : 'badge-info'}">${roleLabel(u.role)}</span>
-            ${u.is_active === false ? '<span class="badge badge-gray">معطّل</span>' : '<span class="badge badge-success">نشط</span>'}
+    el.innerHTML = users.map(u => `
+      <div class="card" style="margin-bottom:12px;">
+        <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px;">
+          <div>
+            <div style="font-weight:700;font-size:14px;">${window.App.escapeHtml(u.full_name)}</div>
+            <div style="color:var(--text-3);font-size:12px;">${window.App.escapeHtml(u.email)}</div>
+            <div style="margin-top:6px;">
+              <span class="badge ${u.role === 'admin' ? 'badge-danger' : 'badge-info'}">${roleLabel(u.role)}</span>
+              ${u.is_active === false ? '<span class="badge badge-gray">معطّل</span>' : '<span class="badge badge-success">نشط</span>'}
+            </div>
+          </div>
+          <div style="display:flex;gap:6px;flex-wrap:wrap;">
+            ${u.role !== 'admin' ? `
+              <button class="btn btn-sm btn-ghost" onclick="openEditPermissions('${u.id}', '${window.App.escapeHtml(u.full_name)}')">
+                ${window.App.icons.shield} الصلاحيات
+              </button>
+            ` : '<span class="badge badge-danger">كل الصلاحيات</span>'}
+            <button class="btn btn-sm btn-ghost" onclick="openEditUser('${u.id}')">${window.App.icons.edit}</button>
+            ${u.id !== window.App.state.user?.id ? `
+              <button class="btn btn-sm btn-danger" onclick="deleteUser('${u.id}', '${window.App.escapeHtml(u.full_name)}')">${window.App.icons.trash}</button>
+            ` : ''}
           </div>
         </div>
-        <div style="display:flex;gap:6px;flex-wrap:wrap;">
-          ${u.role !== 'admin' ? `
-            <button class="btn btn-sm btn-ghost" onclick="openEditPermissions('${u.id}', '${window.App.escapeHtml(u.full_name)}')">
-              ${window.App.icons.shield} الصلاحيات
-            </button>
-          ` : '<span class="badge badge-danger">كل الصلاحيات</span>'}
-          <button class="btn btn-sm btn-ghost" onclick="openEditUser('${u.id}')">${window.App.icons.edit}</button>
-          ${u.id !== window.App.state.user?.id ? `
-            <button class="btn btn-sm btn-danger" onclick="deleteUser('${u.id}', '${window.App.escapeHtml(u.full_name)}')">${window.App.icons.trash}</button>
-          ` : ''}
-        </div>
       </div>
-    </div>
-  `).join('');
+    `).join('');
+  } catch (err) {
+    const el = document.getElementById('users-list');
+    if (el) el.innerHTML = `<div class="empty-state"><p>${window.App.escapeHtml(err.message)}</p></div>`;
+  }
 }
 
 function roleLabel(role) {
@@ -800,7 +842,7 @@ function roleLabel(role) {
   return map[role] || role;
 }
 
-/* ─────────── إضافة مستخدم جديد ─────────── */
+/* ─────────── إضافة مستخدم جديد (عبر Edge Function) ─────────── */
 async function openAddUserModal() {
   const bodyHtml = `
     <div class="input-group">
@@ -871,11 +913,14 @@ async function openAddUserModal() {
       if (password.length < 6) throw new Error('كلمة المرور يجب أن تكون 6 أحرف على الأقل');
       if (password !== password2) throw new Error('كلمتا المرور غير متطابقتين');
 
+      console.log('🔄 إرسال طلب إنشاء مستخدم...');
+
       const { data, error } = await window.SB.client.functions.invoke('create-user', {
         body: { email, password, fullName, role }
       });
 
       if (error) {
+        console.error('❌ Edge Function error:', error);
         let msg = error.message || 'فشل الاتصال بالسيرفر';
         try {
           if (error.context && typeof error.context.json === 'function') {
@@ -1062,6 +1107,7 @@ async function savePermissions(userId) {
 
 async function renderSettings(container) {
   try {
+    if (!container) return;
     const { data: settings } = await window.SB.select('settings');
     const map = {};
     (settings || []).forEach(s => { map[s.key] = s.value; });
@@ -1129,7 +1175,6 @@ async function renderSettings(container) {
           </div>
         </div>
 
-        <!-- شريط التقدم -->
         <div class="backup-progress" id="backup-progress">
           <div class="backup-progress-text">
             <span id="backup-progress-label">جاري المعالجة...</span>
@@ -1159,48 +1204,54 @@ async function renderSettings(container) {
     document.getElementById('backup-import-btn')?.addEventListener('click', openImportModal);
     document.getElementById('backup-excel-btn')?.addEventListener('click', exportAllToExcel);
   } catch (err) {
-    container.innerHTML = `<div class="empty-state"><h3>خطأ</h3><p>${window.App.escapeHtml(err.message)}</p></div>`;
+    if (container) container.innerHTML = `<div class="empty-state"><h3>خطأ</h3><p>${window.App.escapeHtml(err.message)}</p></div>`;
   }
 }
 
 async function loadExternalLocations() {
-  const { data } = await window.SB.select('external_locations', { order: { column: 'name' } });
-  const el = document.getElementById('external-list');
-  if (!data.length) { el.innerHTML = '<p style="color:var(--text-3);font-size:13px;">لا توجد جهات</p>'; return; }
-  el.innerHTML = `
-    <div class="table-wrap" style="background:transparent;border:none;">
-      <table>
-        <thead><tr><th>الاسم</th><th>النوع</th><th>الحالة</th><th></th></tr></thead>
-        <tbody>${data.map(e => `
-          <tr>
-            <td>${window.App.escapeHtml(e.name)}</td>
-            <td>${e.type === 'customer' ? 'عميل' : e.type === 'supplier' ? 'مورد' : e.type === 'warehouse' ? 'مخزن' : 'أخرى'}</td>
-            <td>${e.is_active ? '<span class="badge badge-success">نشط</span>' : '<span class="badge badge-gray">معطّل</span>'}</td>
-            <td><button class="btn btn-sm btn-danger" onclick="deleteExternalLocation('${e.id}')">${window.App.icons.trash}</button></td>
-          </tr>`).join('')}
-        </tbody>
-      </table>
-    </div>`;
+  try {
+    const { data } = await window.SB.select('external_locations', { order: { column: 'name' } });
+    const el = document.getElementById('external-list');
+    if (!el) return;
+    if (!data.length) { el.innerHTML = '<p style="color:var(--text-3);font-size:13px;">لا توجد جهات</p>'; return; }
+    el.innerHTML = `
+      <div class="table-wrap" style="background:transparent;border:none;">
+        <table>
+          <thead><tr><th>الاسم</th><th>النوع</th><th>الحالة</th><th></th></tr></thead>
+          <tbody>${data.map(e => `
+            <tr>
+              <td>${window.App.escapeHtml(e.name)}</td>
+              <td>${e.type === 'customer' ? 'عميل' : e.type === 'supplier' ? 'مورد' : e.type === 'warehouse' ? 'مخزن' : 'أخرى'}</td>
+              <td>${e.is_active ? '<span class="badge badge-success">نشط</span>' : '<span class="badge badge-gray">معطّل</span>'}</td>
+              <td><button class="btn btn-sm btn-danger" onclick="deleteExternalLocation('${e.id}')">${window.App.icons.trash}</button></td>
+            </tr>`).join('')}
+          </tbody>
+        </table>
+      </div>`;
+  } catch (err) { console.warn('external:', err); }
 }
 
 async function loadExtraCashboxes() {
-  const { data } = await window.SB.select('extra_cashboxes', { order: { column: 'name' } });
-  const el = document.getElementById('cashboxes-list');
-  if (!data.length) { el.innerHTML = '<p style="color:var(--text-3);font-size:13px;">لا توجد خزائن إضافية</p>'; return; }
-  el.innerHTML = `
-    <div class="table-wrap" style="background:transparent;border:none;">
-      <table>
-        <thead><tr><th>الاسم</th><th>النوع</th><th>الرصيد</th><th></th></tr></thead>
-        <tbody>${data.map(b => `
-          <tr>
-            <td>${window.App.escapeHtml(b.name)}</td>
-            <td>${b.type === 'cash' ? 'كاش' : b.type === 'bank' ? 'بنك' : 'أخرى'}</td>
-            <td>${window.App.formatCurrency(b.balance)}</td>
-            <td><button class="btn btn-sm btn-danger" onclick="deleteExtraBox('${b.id}')">${window.App.icons.trash}</button></td>
-          </tr>`).join('')}
-        </tbody>
-      </table>
-    </div>`;
+  try {
+    const { data } = await window.SB.select('extra_cashboxes', { order: { column: 'name' } });
+    const el = document.getElementById('cashboxes-list');
+    if (!el) return;
+    if (!data.length) { el.innerHTML = '<p style="color:var(--text-3);font-size:13px;">لا توجد خزائن إضافية</p>'; return; }
+    el.innerHTML = `
+      <div class="table-wrap" style="background:transparent;border:none;">
+        <table>
+          <thead><tr><th>الاسم</th><th>النوع</th><th>الرصيد</th><th></th></tr></thead>
+          <tbody>${data.map(b => `
+            <tr>
+              <td>${window.App.escapeHtml(b.name)}</td>
+              <td>${b.type === 'cash' ? 'كاش' : b.type === 'bank' ? 'بنك' : 'أخرى'}</td>
+              <td>${window.App.formatCurrency(b.balance)}</td>
+              <td><button class="btn btn-sm btn-danger" onclick="deleteExtraBox('${b.id}')">${window.App.icons.trash}</button></td>
+            </tr>`).join('')}
+          </tbody>
+        </table>
+      </div>`;
+  } catch (err) { console.warn('cashboxes:', err); }
 }
 
 async function openAddExternalModal() {
@@ -1612,7 +1663,6 @@ function openImportModal() {
       const totalTables = BACKUP_TABLES.length;
       let restoredRecords = 0;
 
-      // حذف البيانات الحالية (بترتيب عكسي)
       const reversedTables = [...BACKUP_TABLES].reverse();
       for (const table of reversedTables) {
         try {
@@ -1625,7 +1675,6 @@ function openImportModal() {
         }
       }
 
-      // استيراد البيانات الجديدة
       for (let i = 0; i < BACKUP_TABLES.length; i++) {
         const table = BACKUP_TABLES[i];
         const percent = (i / totalTables) * 100;
@@ -1801,7 +1850,6 @@ window.Advanced = {
   openEditUser,
   openAddUserModal,
   deleteUser,
-  // النسخ الاحتياطي
   downloadBackup,
   openImportModal,
   exportAllToExcel
