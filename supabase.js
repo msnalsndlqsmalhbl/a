@@ -4,6 +4,7 @@
    ═══════════════════════════════════════════════════════════════ */
 
 'use strict';
+
 /* ─────────────── إعداد الاتصال ─────────────── */
 const SUPABASE_URL = 'https://xejrpjunlgbwkfrklmha.supabase.co';
 const SUPABASE_ANON_KEY = 'sb_publishable_2ytJQbvaPBA-x4I9cE7DAA_hnDOI_Dc';
@@ -20,13 +21,8 @@ try {
       flowType: 'implicit'
     },
     realtime: {
-      params: {
-        eventsPerSecond: 10
-      },
+      params: { eventsPerSecond: 10 },
       timeout: 10000
-    },
-    global: {
-      headers: { 'x-application-name': 'sandal-rope-erp' }
     },
     db: {
       schema: 'public'
@@ -372,7 +368,7 @@ async function autoJournalForCustomerPayment(payment, customer) {
 }
 
 /* ═══════════════════════════════════════════════════════════════
-   6. العملية المركبة: إنشاء فاتورة مبيعات
+   6. فاتورة مبيعات (إنشاء + اعتماد)
    ═══════════════════════════════════════════════════════════════ */
 
 async function createSale(saleData, items, payments = []) {
@@ -380,11 +376,9 @@ async function createSale(saleData, items, payments = []) {
     const { user } = await authGetUser();
     if (!user) throw new Error('يجب تسجيل الدخول أولاً');
 
-    // فحص client_uuid لمنع التكرار
     if (saleData.client_uuid) {
       const { data: existing } = await sb.from('sales').select('id, invoice_number').eq('client_uuid', saleData.client_uuid).maybeSingle();
       if (existing) {
-        console.warn('⚠️ الفاتورة موجودة مسبقاً:', existing.invoice_number);
         return { data: existing, error: null, duplicate: true };
       }
     }
@@ -411,7 +405,6 @@ async function createSale(saleData, items, payments = []) {
 
     const { data: sale, error: saleErr } = await sb.from('sales').insert(salePayload).select().single();
     if (saleErr) {
-      // إذا كان الخطأ بسبب client_uuid مكرر → جلب الفاتورة الموجودة
       if (saleErr.code === '23505' && saleData.client_uuid) {
         const { data: existing } = await sb.from('sales').select('id, invoice_number').eq('client_uuid', saleData.client_uuid).single();
         return { data: existing, error: null, duplicate: true };
@@ -449,10 +442,6 @@ async function createSale(saleData, items, payments = []) {
   }
 }
 
-/* ═══════════════════════════════════════════════════════════════
-   7. اعتماد فاتورة مبيعات
-   ═══════════════════════════════════════════════════════════════ */
-
 async function approveSale(saleId) {
   try {
     const { user } = await authGetUser();
@@ -465,7 +454,6 @@ async function approveSale(saleId) {
     const { data: items, error: iErr } = await sb.from('sale_items').select('*').eq('sale_id', saleId);
     if (iErr) throw iErr;
 
-    // خصم من المخزن فقط للبنود المصدرها warehouse
     for (const item of items) {
       if (item.source_type !== 'warehouse') continue;
 
@@ -487,7 +475,6 @@ async function approveSale(saleId) {
       });
     }
 
-    // حركات الخزنة
     if (sale.paid_cash > 0) {
       await sb.from('cash_transactions').insert({
         type: 'in',
@@ -507,7 +494,6 @@ async function approveSale(saleId) {
       });
     }
 
-    // دين العميل
     if (sale.remaining > 0 && sale.customer_id) {
       const { data: customer } = await sb.from('customers').select('*').eq('id', sale.customer_id).single();
       if (customer) {
@@ -515,7 +501,6 @@ async function approveSale(saleId) {
       }
     }
 
-    // قيد تلقائي
     await autoJournalForSale(sale, items);
 
     await sb.from('sales').update({ status: 'approved' }).eq('id', saleId);
@@ -529,27 +514,7 @@ async function approveSale(saleId) {
 }
 
 /* ═══════════════════════════════════════════════════════════════
-   8. إدارة المستخدمين (من داخل النظام)
-   ═══════════════════════════════════════════════════════════════ */
-
-/**
- * إنشاء مستخدم جديد (يعمل فقط عبر RPC Function في Supabase)
- * ملاحظة: يتطلب إنشاء Edge Function في Supabase
- */
-async function createUserAccount(email, password, fullName, role) {
-  try {
-    const { data, error } = await sb.functions.invoke('create-user', {
-      body: { email, password, fullName, role }
-    });
-    if (error) throw error;
-    return { data, error: null };
-  } catch (err) {
-    return { data: null, error: err.message };
-  }
-}
-
-/* ═══════════════════════════════════════════════════════════════
-   9. سداد العملاء
+   7. سداد العملاء والموردين
    ═══════════════════════════════════════════════════════════════ */
 
 async function createCustomerPayment(customerId, amount, paymentType, options = {}) {
@@ -564,7 +529,6 @@ async function createCustomerPayment(customerId, amount, paymentType, options = 
       throw new Error(`المبلغ أكبر من الدين (${customer.balance})`);
     }
 
-    // إدراج سجل السداد
     const { data: payment, error: pErr } = await sb.from('customer_payments').insert({
       customer_id: customerId,
       amount: Number(amount),
@@ -576,7 +540,6 @@ async function createCustomerPayment(customerId, amount, paymentType, options = 
     }).select().single();
     if (pErr) throw pErr;
 
-    // حركة الخزنة
     if (paymentType === 'cash') {
       await sb.from('cash_transactions').insert({
         type: 'in',
@@ -603,17 +566,13 @@ async function createCustomerPayment(customerId, amount, paymentType, options = 
         ref_id: payment.id,
         user_id: user.id
       });
-      // تحديث رصيد الخزنة
       const { data: box } = await sb.from('extra_cashboxes').select('*').eq('id', options.extra_box_id).single();
       if (box) {
         await sb.from('extra_cashboxes').update({ balance: Number(box.balance || 0) + Number(amount) }).eq('id', box.id);
       }
     }
 
-    // تخفيض دين العميل
     await sb.from('customers').update({ balance: Number(customer.balance) - Number(amount) }).eq('id', customerId);
-
-    // قيد محاسبي
     await autoJournalForCustomerPayment(payment, customer);
 
     await logAudit('create', 'customer_payments', payment.id, { customer_id: customerId, amount });
@@ -623,10 +582,6 @@ async function createCustomerPayment(customerId, amount, paymentType, options = 
     return { data: null, error: err.message };
   }
 }
-
-/* ═══════════════════════════════════════════════════════════════
-   10. سداد الموردين
-   ═══════════════════════════════════════════════════════════════ */
 
 async function createSupplierPayment(supplierId, amount, paymentType, options = {}) {
   try {
@@ -651,7 +606,6 @@ async function createSupplierPayment(supplierId, amount, paymentType, options = 
     }).select().single();
     if (pErr) throw pErr;
 
-    // حركة الخزنة (خصم)
     if (paymentType === 'cash') {
       await sb.from('cash_transactions').insert({
         type: 'out',
@@ -685,7 +639,6 @@ async function createSupplierPayment(supplierId, amount, paymentType, options = 
     }
 
     await sb.from('suppliers').update({ balance: Number(supplier.balance) - Number(amount) }).eq('id', supplierId);
-
     await logAudit('create', 'supplier_payments', payment.id, { supplier_id: supplierId, amount });
     return { data: payment, error: null };
   } catch (err) {
@@ -694,7 +647,7 @@ async function createSupplierPayment(supplierId, amount, paymentType, options = 
 }
 
 /* ═══════════════════════════════════════════════════════════════
-   11. إخراج من المخزن (Stock Out)
+   8. المخزن
    ═══════════════════════════════════════════════════════════════ */
 
 async function stockOut(productId, quantity, reason, options = {}) {
@@ -708,10 +661,8 @@ async function stockOut(productId, quantity, reason, options = {}) {
       throw new Error(`الكمية المتاحة ${product.quantity} فقط`);
     }
 
-    // خصم من المخزن
     await sb.from('products').update({ quantity: Number(product.quantity) - Number(quantity) }).eq('id', productId);
 
-    // حركة المخزن
     await sb.from('warehouse_transactions').insert({
       product_id: productId,
       type: 'out',
@@ -720,7 +671,6 @@ async function stockOut(productId, quantity, reason, options = {}) {
       user_id: user.id
     });
 
-    // سجل الإخراج المفصل
     await sb.from('stock_out_log').insert({
       product_id: productId,
       quantity: Number(quantity),
@@ -740,7 +690,7 @@ async function stockOut(productId, quantity, reason, options = {}) {
 }
 
 /* ═══════════════════════════════════════════════════════════════
-   12. المرتجعات
+   9. المرتجعات
    ═══════════════════════════════════════════════════════════════ */
 
 async function createReturn(saleId, items, refundType, reason) {
@@ -794,7 +744,6 @@ async function approveReturn(returnId) {
 
     const { data: items } = await sb.from('return_items').select('*').eq('return_id', returnId);
 
-    // إعادة الكميات للمخزن
     for (const item of items) {
       const { data: product } = await sb.from('products').select('*').eq('id', item.product_id).single();
       if (product) {
@@ -810,7 +759,6 @@ async function approveReturn(returnId) {
       }
     }
 
-    // معالجة الاسترداد
     if (ret.refund_type === 'cash') {
       await sb.from('cash_transactions').insert({
         type: 'out',
@@ -843,7 +791,7 @@ async function approveReturn(returnId) {
 }
 
 /* ═══════════════════════════════════════════════════════════════
-   13. أرصدة الخزائن
+   10. أرصدة الخزائن
    ═══════════════════════════════════════════════════════════════ */
 
 async function getCashBalance() {
@@ -885,7 +833,7 @@ async function getTotalTreasury() {
 }
 
 /* ═══════════════════════════════════════════════════════════════
-   14. التحويلات
+   11. التحويلات
    ═══════════════════════════════════════════════════════════════ */
 
 async function createTransfer(fromType, toType, amount, toName, description) {
@@ -935,7 +883,7 @@ async function createTransfer(fromType, toType, amount, toName, description) {
 }
 
 /* ═══════════════════════════════════════════════════════════════
-   15. المصروفات
+   12. المصروفات
    ═══════════════════════════════════════════════════════════════ */
 
 async function approveExpense(expenseId) {
@@ -967,7 +915,7 @@ async function approveExpense(expenseId) {
 }
 
 /* ═══════════════════════════════════════════════════════════════
-   16. القيد اليدوي
+   13. القيد اليدوي
    ═══════════════════════════════════════════════════════════════ */
 
 async function createManualJournal(entryData, lines) {
@@ -1008,7 +956,7 @@ async function createManualJournal(entryData, lines) {
 }
 
 /* ═══════════════════════════════════════════════════════════════
-   17. التسويات
+   14. التسويات
    ═══════════════════════════════════════════════════════════════ */
 
 async function createReconciliation(type, actual, reason) {
@@ -1059,7 +1007,7 @@ async function createReconciliation(type, actual, reason) {
 }
 
 /* ═══════════════════════════════════════════════════════════════
-   18. Storage
+   15. Storage
    ═══════════════════════════════════════════════════════════════ */
 
 async function uploadAttachment(file, folder = 'general') {
@@ -1088,7 +1036,7 @@ async function clearAllAttachments() {
 }
 
 /* ═══════════════════════════════════════════════════════════════
-   19. Realtime
+   16. Realtime
    ═══════════════════════════════════════════════════════════════ */
 
 const realtimeChannels = {};
@@ -1118,18 +1066,13 @@ function unsubscribeAll() {
 }
 
 /* ═══════════════════════════════════════════════════════════════
-   20. حذف جميع البيانات
+   17. حذف جميع البيانات
    ═══════════════════════════════════════════════════════════════ */
+
 async function deleteAllData() {
-  const results = { success: [], failed: [] };
-
-  // ═══════════════════════════════════════════════════════════════
-  // الترتيب مهم جداً: الأبناء أولاً، ثم الآباء
-  // ═══════════════════════════════════════════════════════════════
-
   const tables = [
-    // ─────────── 1. سطور القيود والتفاصيل (أبناء جدول الفواتير) ───────────
     'journal_lines',
+    'journal_entries',
     'sale_payments',
     'sale_items',
     'return_items',
@@ -1140,9 +1083,6 @@ async function deleteAllData() {
     'supplier_payments',
     'stock_out_log',
     'permissions',
-
-    // ─────────── 2. الجداول الرئيسية ───────────
-    'journal_entries',
     'returns',
     'sales',
     'purchases',
@@ -1152,54 +1092,31 @@ async function deleteAllData() {
     'transfers',
     'reconciliations',
     'extra_cashboxes',
-
-    // ─────────── 3. الجداول المستقلة ───────────
     'external_locations',
     'products',
     'customers',
     'suppliers',
     'accounts',
-
-    // ─────────── 4. سجل التدقيق (الأخير - بعد إزالة كل المراجع) ───────────
-    'audit_logs',
+    'audit_logs'
   ];
 
-  // حذف كل جدول
+  const results = { success: [], failed: [] };
+
   for (const table of tables) {
     try {
-      let query = sb.from(table).delete();
-
-      // شرط وهمي لتفعيل الحذف (Supabase يحتاج شرط)
-      if (table === 'settings') {
-        // settings لها مفتاح فريد key بدل id
-        query = query.neq('key', '___never___');
-      } else {
-        // باقي الجداول لها id
-        query = query.neq('id', '00000000-0000-0000-0000-000000000000');
-      }
-
-      const { error } = await query;
-
+      const { error } = await sb.from(table).delete().neq('id', '00000000-0000-0000-0000-000000000000');
       if (error) {
-        console.warn(`⚠️ فشل حذف ${table}:`, error.message);
         results.failed.push({ table, error: error.message });
       } else {
         results.success.push(table);
       }
     } catch (err) {
-      console.warn(`⚠️ استثناء في ${table}:`, err.message);
       results.failed.push({ table, error: err.message });
     }
   }
 
-  // مسح المرفقات من Storage
-  try {
-    await clearAllAttachments();
-  } catch (err) {
-    console.warn('⚠️ فشل مسح المرفقات:', err.message);
-  }
+  try { await clearAllAttachments(); } catch {}
 
-  // مسح localStorage (مع الاحتفاظ بجلسة Supabase)
   try {
     const keysToKeep = [];
     Object.keys(localStorage).forEach(k => {
@@ -1209,20 +1126,13 @@ async function deleteAllData() {
     keysToKeep.forEach(k => backup[k] = localStorage.getItem(k));
     localStorage.clear();
     Object.entries(backup).forEach(([k, v]) => localStorage.setItem(k, v));
-  } catch (err) {
-    console.warn('⚠️ فشل مسح localStorage:', err.message);
-  }
-
-  // 🎯 ملاحظة: users, roles, settings تبقى
-  // (لأن users مرتبط بـ auth.users، والباقي بيانات مرجعية)
-
-  console.log('📊 نتيجة الحذف:', results);
+  } catch {}
 
   return results;
 }
 
 /* ═══════════════════════════════════════════════════════════════
-   21. دوال مساعدة
+   18. دوال مساعدة
    ═══════════════════════════════════════════════════════════════ */
 
 async function getDashboardKPIs() {
@@ -1289,7 +1199,6 @@ async function getCustomerStatement(customerId, fromDate = null, toDate = null) 
     if (toDate) payQuery = payQuery.lte('created_at', toDate);
     const { data: payments } = await payQuery;
 
-    // دمج العمليات
     const all = [];
     (sales || []).forEach(s => all.push({
       type: 'sale',
@@ -1346,7 +1255,7 @@ async function getProductMovements(productId, fromDate = null, toDate = null) {
 }
 
 /* ═══════════════════════════════════════════════════════════════
-   22. التصدير العام
+   19. التصدير العام
    ═══════════════════════════════════════════════════════════════ */
 
 window.SB = {
@@ -1366,7 +1275,6 @@ window.SB = {
   getUser: authGetUser,
   getUserProfile,
   getUserPermissions,
-  createUserAccount,
   // Audit
   logAudit,
   // Numbers
