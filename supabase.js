@@ -8,7 +8,6 @@
 /* ─────────────── إعداد الاتصال ─────────────── */
 const SUPABASE_URL = 'https://xejrpjunlgbwkfrklmha.supabase.co';
 const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhlanJwanVubGdid2tmcmtsbWhhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODkzMDY5OTcsImV4cCI6MjEwNDg4Mjk5N30.iFSQDLEVlAV_-sXhPGdo15Li3vGECoFrinWI6OVGRj4';
-
 let sb = null;
 try {
   sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
@@ -357,6 +356,52 @@ async function autoJournalForCustomerPayment(payment, customer) {
   }
 }
 
+/* ✅ قيد الدفعة المقدمة */
+async function autoJournalForCustomerAdvancePayment(payment, customer) {
+  try {
+    const { user } = await authGetUser();
+    if (!user) return;
+
+    const entryNumber = await generateEntryNumber();
+    const { data: entry } = await sb.from('journal_entries').insert({
+      entry_number: entryNumber,
+      date: new Date().toISOString().split('T')[0],
+      description: `دفعة مقدمة من العميل ${customer.name}`,
+      ref_type: 'customer_advance_payment',
+      ref_id: payment.id,
+      created_by: user.id
+    }).select().single();
+
+    const { data: accounts } = await sb.from('accounts').select('*');
+    const findAcc = (code) => accounts?.find(a => a.code === code);
+
+    const cashAcc = findAcc('1100');
+    const bankAcc = findAcc('1200');
+    const extraAcc = findAcc('1500');
+    const custAcc = findAcc('1300');
+
+    const lines = [];
+
+    // مدين: الخزنة (دخلت فلوس)
+    if (payment.payment_type === 'cash' && cashAcc) {
+      lines.push({ entry_id: entry.id, account_id: cashAcc.id, debit: payment.amount, credit: 0, description: 'استلام كاش' });
+    } else if (payment.payment_type === 'bank' && bankAcc) {
+      lines.push({ entry_id: entry.id, account_id: bankAcc.id, debit: payment.amount, credit: 0, description: 'استلام بنك' });
+    } else if (payment.payment_type === 'extra_box' && extraAcc) {
+      lines.push({ entry_id: entry.id, account_id: extraAcc.id, debit: payment.amount, credit: 0, description: 'استلام خزنة أخرى' });
+    }
+
+    // دائن: العميل (رصيده دائن)
+    if (custAcc) {
+      lines.push({ entry_id: entry.id, account_id: custAcc.id, debit: 0, credit: payment.amount, description: 'دفعة مقدمة من العميل' });
+    }
+
+    if (lines.length > 0) await sb.from('journal_lines').insert(lines);
+  } catch (err) {
+    console.warn('⚠️ فشل قيد الدفعة المقدمة:', err.message);
+  }
+}
+
 /* ═══════════════════════════════════════════════════════════════
    6. إنشاء فاتورة مبيعات
    ═══════════════════════════════════════════════════════════════ */
@@ -448,7 +493,6 @@ async function approveWarehouseOrder(saleId, notes = '') {
     if (sale.status === 'rejected') throw new Error('الفاتورة مرفوضة');
     if (sale.warehouse_approved) throw new Error('الفاتورة موافق عليها من المخزن مسبقاً');
 
-    // التحقق من الكميات
     const { data: items } = await sb.from('sale_items').select('*').eq('sale_id', saleId);
     for (const item of items) {
       if (item.source_type !== 'warehouse') continue;
@@ -539,7 +583,6 @@ async function approveSale(saleId) {
     const { data: items, error: iErr } = await sb.from('sale_items').select('*').eq('sale_id', saleId);
     if (iErr) throw iErr;
 
-    // خصم من المخزن
     for (const item of items) {
       if (item.source_type !== 'warehouse') continue;
 
@@ -561,7 +604,6 @@ async function approveSale(saleId) {
       });
     }
 
-    // حركات الخزنة
     if (sale.paid_cash > 0) {
       await sb.from('cash_transactions').insert({
         type: 'in',
@@ -581,11 +623,14 @@ async function approveSale(saleId) {
       });
     }
 
-    // دين العميل
+    // ✅ دين العميل (مع مراعاة الدفعات المقدمة)
     if (sale.remaining > 0 && sale.customer_id) {
       const { data: customer } = await sb.from('customers').select('*').eq('id', sale.customer_id).single();
       if (customer) {
-        await sb.from('customers').update({ balance: (customer.balance || 0) + sale.remaining }).eq('id', customer.id);
+        const currentBalance = Number(customer.balance || 0);
+        // إذا كان الرصيد سالباً (دفعة مقدمة) → يُستخدم لتخفيض المتبقي
+        let newBalance = currentBalance + Number(sale.remaining);
+        await sb.from('customers').update({ balance: newBalance }).eq('id', customer.id);
       }
     }
 
@@ -622,7 +667,7 @@ async function createUserAccount(email, password, fullName, role) {
 }
 
 /* ═══════════════════════════════════════════════════════════════
-   10. سداد العملاء
+   10. سداد العملاء (دفعة دين)
    ═══════════════════════════════════════════════════════════════ */
 
 async function createCustomerPayment(customerId, amount, paymentType, options = {}) {
@@ -648,7 +693,6 @@ async function createCustomerPayment(customerId, amount, paymentType, options = 
     }).select().single();
     if (pErr) throw pErr;
 
-    // حركة الخزنة
     if (paymentType === 'cash') {
       await sb.from('cash_transactions').insert({
         type: 'in',
@@ -688,6 +732,80 @@ async function createCustomerPayment(customerId, amount, paymentType, options = 
     return { data: payment, error: null };
   } catch (err) {
     console.error('❌ createCustomerPayment:', err.message);
+    return { data: null, error: err.message };
+  }
+}
+
+/* ✅ دفعة مقدمة من عميل */
+async function createCustomerAdvancePayment(customerId, amount, paymentType, options = {}) {
+  try {
+    const { user } = await authGetUser();
+    if (!user) throw new Error('يجب تسجيل الدخول');
+
+    const { data: customer, error: cErr } = await sb.from('customers').select('*').eq('id', customerId).single();
+    if (cErr) throw cErr;
+
+    const payAmount = Number(amount);
+    if (!payAmount || payAmount <= 0) throw new Error('المبلغ غير صحيح');
+
+    const { data: payment, error: pErr } = await sb.from('customer_payments').insert({
+      customer_id: customerId,
+      amount: payAmount,
+      payment_type: paymentType,
+      extra_box_id: options.extra_box_id || null,
+      bank_ref: options.bank_ref || null,
+      description: `دفعة مقدمة من العميل: ${customer.name}${options.description ? ' - ' + options.description : ''}`,
+      user_id: user.id
+    }).select().single();
+    if (pErr) throw pErr;
+
+    if (paymentType === 'cash') {
+      await sb.from('cash_transactions').insert({
+        type: 'in',
+        amount: payAmount,
+        description: `دفعة مقدمة من العميل: ${customer.name}`,
+        ref_id: payment.id,
+        user_id: user.id
+      });
+    } else if (paymentType === 'bank') {
+      await sb.from('bank_transactions').insert({
+        type: 'in',
+        amount: payAmount,
+        description: `دفعة مقدمة من العميل: ${customer.name}`,
+        bank_ref: options.bank_ref || null,
+        ref_id: payment.id,
+        user_id: user.id
+      });
+    } else if (paymentType === 'extra_box' && options.extra_box_id) {
+      await sb.from('extra_cashbox_transactions').insert({
+        cashbox_id: options.extra_box_id,
+        type: 'in',
+        amount: payAmount,
+        description: `دفعة مقدمة من العميل: ${customer.name}`,
+        ref_id: payment.id,
+        user_id: user.id
+      });
+      const { data: box } = await sb.from('extra_cashboxes').select('*').eq('id', options.extra_box_id).single();
+      if (box) {
+        await sb.from('extra_cashboxes').update({ balance: Number(box.balance || 0) + payAmount }).eq('id', box.id);
+      }
+    }
+
+    // ✅ رصيد العميل ينقص (يصبح سالب = دائن)
+    await sb.from('customers').update({
+      balance: Number(customer.balance || 0) - payAmount
+    }).eq('id', customerId);
+
+    await autoJournalForCustomerAdvancePayment(payment, customer);
+    await logAudit('create', 'customer_payments', payment.id, {
+      customer_id: customerId,
+      amount: payAmount,
+      type: 'advance_payment'
+    });
+
+    return { data: payment, error: null };
+  } catch (err) {
+    console.error('❌ createCustomerAdvancePayment:', err.message);
     return { data: null, error: err.message };
   }
 }
@@ -1187,33 +1305,16 @@ async function deleteAllData() {
   const results = { success: [], failed: [] };
 
   const tables = [
-    'journal_lines',
-    'journal_entries',
-    'sale_payments',
-    'sale_items',
-    'return_items',
-    'purchase_items',
-    'warehouse_transactions',
-    'extra_cashbox_transactions',
-    'customer_payments',
-    'supplier_payments',
-    'stock_out_log',
+    'journal_lines', 'journal_entries',
+    'sale_payments', 'sale_items', 'return_items', 'purchase_items',
+    'warehouse_transactions', 'extra_cashbox_transactions',
+    'customer_payments', 'supplier_payments', 'stock_out_log',
     'permissions',
-    'returns',
-    'sales',
-    'purchases',
-    'expenses',
-    'cash_transactions',
-    'bank_transactions',
-    'transfers',
-    'reconciliations',
-    'extra_cashboxes',
-    'external_locations',
-    'products',
-    'customers',
-    'suppliers',
-    'accounts',
-    'audit_logs',
+    'returns', 'sales', 'purchases', 'expenses',
+    'cash_transactions', 'bank_transactions', 'transfers', 'reconciliations',
+    'extra_cashboxes', 'external_locations',
+    'products', 'customers', 'suppliers', 'accounts',
+    'audit_logs'
   ];
 
   for (const table of tables) {
@@ -1300,6 +1401,7 @@ async function getDashboardKPIs() {
   }
 }
 
+/* ✅ كشف حساب العميل — يدعم السداد + المقدم */
 async function getCustomerStatement(customerId, fromDate = null, toDate = null) {
   try {
     let query = sb.from('sales')
@@ -1321,29 +1423,42 @@ async function getCustomerStatement(customerId, fromDate = null, toDate = null) 
     const { data: payments } = await payQuery;
 
     const all = [];
+
     (sales || []).forEach(s => all.push({
       type: 'sale',
       date: s.created_at,
       ref: s.invoice_number,
       amount: s.total,
       paid: Number(s.paid_cash) + Number(s.paid_bank),
-      remaining: s.remaining
+      remaining: s.remaining,
+      isAdvance: false
     }));
-    (payments || []).forEach(p => all.push({
-      type: 'payment',
-      date: p.created_at,
-      ref: 'سداد',
-      amount: 0,
-      paid: p.amount,
-      remaining: 0
-    }));
+
+    (payments || []).forEach(p => {
+      // ✅ التمييز: هل هي دفعة مقدمة أم سداد؟
+      const isAdvancePayment = (p.description || '').includes('دفعة مقدمة');
+
+      all.push({
+        type: isAdvancePayment ? 'advance_payment' : 'payment',
+        date: p.created_at,
+        ref: isAdvancePayment ? 'مقدم' : 'سداد',
+        amount: 0,
+        paid: p.amount,
+        remaining: 0,
+        isAdvance: false
+      });
+    });
 
     all.sort((a, b) => new Date(a.date) - new Date(b.date));
 
     let balance = 0;
     const statement = all.map(x => {
-      if (x.type === 'sale') balance += Number(x.remaining);
-      else balance -= Number(x.paid);
+      if (x.type === 'sale') {
+        balance += Number(x.remaining);
+      } else {
+        // سداد أو مقدم → كلاهما ينقص الرصيد
+        balance -= Number(x.paid);
+      }
       return { ...x, running_balance: balance };
     });
 
@@ -1381,7 +1496,6 @@ async function getProductMovements(productId, fromDate = null, toDate = null) {
 
 window.SB = {
   client: sb,
-  // CRUD
   select: dbSelect,
   getById: dbGetById,
   insert: dbInsert,
@@ -1389,7 +1503,6 @@ window.SB = {
   update: dbUpdate,
   delete: dbDelete,
   count: dbCount,
-  // Auth
   login: authLogin,
   logout: authLogout,
   getSession: authGetSession,
@@ -1397,19 +1510,17 @@ window.SB = {
   getUserProfile,
   getUserPermissions,
   createUserAccount,
-  // Audit
   logAudit,
-  // Numbers
   generateInvoiceNumber,
   generateEntryNumber,
   generateReturnNumber,
-  // Composite
   createSale,
   approveSale,
   approveWarehouseOrder,
   rejectWarehouseOrder,
   getPendingWarehouseOrders,
   createCustomerPayment,
+  createCustomerAdvancePayment,  // ✅ جديد
   createSupplierPayment,
   stockOut,
   createReturn,
@@ -1418,23 +1529,18 @@ window.SB = {
   createManualJournal,
   createReconciliation,
   createTransfer,
-  // Balances
   getCashBalance,
   getBankBalance,
   getExtraBoxesBalance,
   getTotalTreasury,
-  // Storage
   uploadAttachment,
   clearAllAttachments,
-  // Realtime
   subscribeToTable,
   unsubscribeAll,
-  // Data
   deleteAllData,
-  // Helpers
   getDashboardKPIs,
   getCustomerStatement,
   getProductMovements
 };
 
-console.log('✅ supabase.js جاهز (محدّث - موافقة مزدوجة)');
+console.log('✅ supabase.js جاهز (محدّث - دفعة مقدمة)');
