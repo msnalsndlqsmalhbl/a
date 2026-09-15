@@ -1,7 +1,7 @@
 /* ═══════════════════════════════════════════════════════════════
    نظام إدارة قسم الحبل - مصنع الصندل
    modules.js - Dashboard + Sales + Customers + Suppliers
-                + Warehouse (مع موافقة) + Treasury + Expenses
+                + Warehouse + Treasury + Expenses
    ═══════════════════════════════════════════════════════════════ */
 
 'use strict';
@@ -401,7 +401,7 @@ async function openNewSaleModal() {
           <label>العميل</label>
           <select id="sale-customer">
             <option value="">— عميل نقدي —</option>
-            ${customers.map(c => `<option value="${c.id}">${window.App.escapeHtml(c.name)} ${c.phone ? ' - ' + c.phone : ''}</option>`).join('')}
+            ${customers.map(c => `<option value="${c.id}">${window.App.escapeHtml(c.name)} ${c.phone ? ' - ' + c.phone : ''}${c.balance < 0 ? ' (له رصيد: ' + window.App.formatCurrency(Math.abs(c.balance)) + ')' : ''}</option>`).join('')}
           </select>
         </div>
 
@@ -1117,7 +1117,7 @@ async function loadCustomersList(search = '') {
     listEl.innerHTML = `
       <div class="table-wrap">
         <table class="responsive">
-          <thead><tr><th>الاسم</th><th>الهاتف</th><th>العنوان</th><th>الرصيد (الدين)</th><th>إجراءات</th></tr></thead>
+          <thead><tr><th>الاسم</th><th>الهاتف</th><th>العنوان</th><th>الرصيد</th><th>إجراءات</th></tr></thead>
           <tbody>
             ${customers.map(c => `
               <tr>
@@ -1127,8 +1127,11 @@ async function loadCustomersList(search = '') {
                 <td data-label="الرصيد">${window.App.money(c.balance)}</td>
                 <td data-label="إجراءات">
                   <div style="display:flex;gap:6px;flex-wrap:wrap;">
-                    ${c.balance > 0 && window.App.hasPermission('customers', 'approve') ? `
-                      <button class="btn btn-sm btn-success" onclick="openCustomerPayment('${c.id}')" title="سداد دفعة">💰 سداد</button>
+                    ${window.App.hasPermission('customers', 'approve') ? `
+                      ${c.balance > 0 ? `
+                        <button class="btn btn-sm btn-success" onclick="openCustomerPayment('${c.id}')" title="سداد دفعة">💰 سداد</button>
+                      ` : ''}
+                      <button class="btn btn-sm btn-accent" onclick="openCustomerAdvancePayment('${c.id}')" title="دفعة مقدمة">📥 مقدم</button>
                     ` : ''}
                     <button class="btn btn-sm btn-ghost" onclick="viewCustomerStatement('${c.id}')" title="كشف حساب">${window.App.icons.book}</button>
                     ${window.App.hasPermission('customers', 'edit') ? `<button class="btn btn-sm btn-ghost" onclick="openCustomerModal('${c.id}')" title="تعديل">${window.App.icons.edit}</button>` : ''}
@@ -1245,7 +1248,11 @@ async function viewCustomerStatement(id) {
                 <tr><td colspan="6" style="text-align:center;padding:20px;color:var(--text-3);">لا توجد حركات</td></tr>
               ` : statement.map(s => `
                 <tr>
-                  <td>${s.type === 'sale' ? 'فاتورة' : 'سداد'}</td>
+                  <td>${
+                    s.type === 'sale' ? '<span class="badge badge-primary">فاتورة</span>' :
+                    s.type === 'advance_payment' ? '<span class="badge badge-info">مقدم</span>' :
+                    '<span class="badge badge-success">سداد</span>'
+                  }</td>
                   <td>${window.App.escapeHtml(s.ref || '—')}</td>
                   <td>${window.App.formatDate(s.date)}</td>
                   <td>${s.type === 'sale' ? window.App.formatCurrency(s.amount) : '—'}</td>
@@ -1257,8 +1264,10 @@ async function viewCustomerStatement(id) {
           </table>
         </div>
 
-        <div style="margin-top:20px;padding:16px;background:${finalBalance > 0 ? 'rgba(239,68,68,0.08)' : 'rgba(16,185,129,0.08)'};border-radius:12px;display:flex;justify-content:space-between;align-items:center;">
-          <span style="font-weight:700;font-size:14px;">الرصيد النهائي:</span>
+        <div style="margin-top:20px;padding:16px;background:${finalBalance > 0 ? 'rgba(239,68,68,0.08)' : finalBalance < 0 ? 'rgba(6,182,212,0.08)' : 'rgba(16,185,129,0.08)'};border-radius:12px;display:flex;justify-content:space-between;align-items:center;">
+          <span style="font-weight:700;font-size:14px;">
+            ${finalBalance > 0 ? 'الدين النهائي:' : finalBalance < 0 ? 'له عندنا (رصيد دائن):' : 'الرصيد النهائي:'}
+          </span>
           <strong style="font-size:20px;">${window.App.money(finalBalance)}</strong>
         </div>
 
@@ -1327,6 +1336,7 @@ function printCustomerStatement() {
   }
 }
 
+/* ─────────── سداد دفعة من عميل ─────────── */
 async function openCustomerPayment(customerId) {
   try {
     const { data: customer } = await window.SB.getById('customers', customerId);
@@ -1372,7 +1382,7 @@ async function openCustomerPayment(customerId) {
       </div>
     `;
 
-    window.App.openModal(`سداد دفعة - ${window.App.escapeHtml(customer.name)}`, bodyHtml, `
+    window.App.openModal(`💰 سداد دفعة - ${window.App.escapeHtml(customer.name)}`, bodyHtml, `
       <button class="btn btn-ghost" onclick="window.App.closeModal()">إلغاء</button>
       <button class="btn btn-success" id="confirm-pay-btn" data-customer-id="${customerId}">${window.App.icons.check} تأكيد السداد</button>
     `);
@@ -1409,6 +1419,112 @@ async function openCustomerPayment(customerId) {
       finally { unlock(); }
     });
   } catch (err) { window.App.showToast(err.message, 'error'); }
+}
+
+/* ✅ دفعة مقدمة من عميل */
+async function openCustomerAdvancePayment(customerId) {
+  try {
+    const { data: customer } = await window.SB.getById('customers', customerId);
+    if (!customer) throw new Error('العميل غير موجود');
+
+    const { data: extraBoxes } = await window.SB.select('extra_cashboxes', { eq: { is_active: true }, order: { column: 'name' } });
+
+    const bodyHtml = `
+      <div style="padding:12px;background:rgba(6,182,212,0.08);border-radius:10px;margin-bottom:12px;">
+        <div style="display:flex;justify-content:space-between;margin-bottom:6px;">
+          <span>العميل:</span>
+          <strong>${window.App.escapeHtml(customer.name)}</strong>
+        </div>
+        <div style="display:flex;justify-content:space-between;">
+          <span>الرصيد الحالي:</span>
+          <strong>${window.App.money(customer.balance)}</strong>
+        </div>
+      </div>
+
+      <div class="input-group">
+        <label>مبلغ الدفعة المقدمة *</label>
+        <input type="number" id="advp-amount" min="0.01" step="0.01" value="0" placeholder="0">
+      </div>
+
+      <div class="input-group">
+        <label>طريقة الاستلام *</label>
+        <select id="advp-type">
+          <option value="cash">كاش (خزنة الكاش)</option>
+          <option value="bank">بنك (خزنة البنك)</option>
+          ${extraBoxes.length > 0 ? `<option value="extra_box">خزنة أخرى</option>` : ''}
+        </select>
+      </div>
+
+      <div class="input-group hidden" id="advp-extra-box-wrap">
+        <label>اختر الخزنة</label>
+        <select id="advp-extra-box">
+          ${extraBoxes.map(b => `<option value="${b.id}">${window.App.escapeHtml(b.name)} (${window.App.formatCurrency(b.balance)})</option>`).join('')}
+        </select>
+      </div>
+
+      <div class="input-group hidden" id="advp-bank-ref-wrap">
+        <label>رقم العملية البنكية</label>
+        <input type="text" id="advp-bank-ref" placeholder="اختياري">
+      </div>
+
+      <div class="input-group">
+        <label>ملاحظات</label>
+        <textarea id="advp-desc" rows="2" placeholder="مثال: مقدم لشراء حبل الشهر القادم"></textarea>
+      </div>
+
+      <div style="padding:12px;background:rgba(6,182,212,0.08);border-radius:10px;font-size:12.5px;color:var(--text-2);">
+        ℹ️ بعد الاعتماد:
+        <ul style="margin:8px 20px 0 0;padding:0;">
+          <li>الخزنة: <strong style="color:var(--success);">تزيد</strong> بمقدار الدفعة</li>
+          <li>رصيد العميل: <strong style="color:var(--info);">ينقص</strong> (يصبح دائناً - له عندنا)</li>
+        </ul>
+      </div>
+    `;
+
+    window.App.openModal(`📥 دفعة مقدمة - ${window.App.escapeHtml(customer.name)}`, bodyHtml, `
+      <button class="btn btn-ghost" onclick="window.App.closeModal()">إلغاء</button>
+      <button class="btn btn-accent" id="confirm-advp-btn">${window.App.icons.check} تأكيد الدفعة</button>
+    `);
+
+    const typeSel = document.getElementById('advp-type');
+    typeSel.addEventListener('change', () => {
+      document.getElementById('advp-extra-box-wrap').classList.toggle('hidden', typeSel.value !== 'extra_box');
+      document.getElementById('advp-bank-ref-wrap').classList.toggle('hidden', typeSel.value !== 'bank');
+    });
+
+    document.getElementById('confirm-advp-btn').addEventListener('click', async (e) => {
+      const btn = e.currentTarget;
+      if (btn.dataset.processing === 'true') return;
+      const unlock = window.App.lockProcessing(btn, 'جاري المعالجة...');
+
+      try {
+        const amount = Number(document.getElementById('advp-amount').value);
+        const type = typeSel.value;
+        const desc = document.getElementById('advp-desc').value.trim();
+        const bankRef = document.getElementById('advp-bank-ref')?.value.trim();
+        const extraBoxId = document.getElementById('advp-extra-box')?.value;
+
+        if (!amount || amount <= 0) throw new Error('المبلغ غير صحيح');
+
+        const { error } = await window.SB.createCustomerAdvancePayment(customerId, amount, type, {
+          description: desc,
+          bank_ref: bankRef,
+          extra_box_id: extraBoxId
+        });
+        if (error) throw new Error(error);
+
+        window.App.showToast(`تم استلام دفعة مقدمة: ${window.App.formatCurrency(amount)}`, 'success');
+        window.App.closeModal();
+        await loadCustomersList();
+      } catch (err) {
+        window.App.showToast(err.message, 'error');
+      } finally {
+        unlock();
+      }
+    });
+  } catch (err) {
+    window.App.showToast(err.message, 'error');
+  }
 }
 
 async function exportCustomersExcel() {
@@ -1678,7 +1794,7 @@ async function exportSuppliersExcel() {
 }
 
 /* ═══════════════════════════════════════════════════════════════
-   الوحدة 5: المخزن (مع موافقة مزدوجة)
+   الوحدة 5: المخزن
    ═══════════════════════════════════════════════════════════════ */
 
 async function renderWarehouse(container) {
@@ -1899,10 +2015,6 @@ async function openRejectWarehouseOrder(saleId, invoiceNumber) {
     <div class="input-group">
       <label>سبب الرفض *</label>
       <textarea id="wh-reject-reason" rows="3" placeholder="مثال: الكمية غير متوفرة، المنتج محجوز..."></textarea>
-    </div>
-
-    <div style="padding:12px;background:rgba(239,68,68,0.08);border-radius:10px;font-size:12.5px;color:var(--text-2);">
-      ⚠️ سيتم إشعار الكاشير بسبب الرفض.
     </div>
   `;
 
@@ -2798,7 +2910,10 @@ window.Modules = {
   loadExpensesList,
   loadOrderItems,
   openApproveWarehouseOrder,
-  openRejectWarehouseOrder
+  openRejectWarehouseOrder,
+  openCustomerPayment,
+  openCustomerAdvancePayment,  // ✅ جديد
+  openCustomerStatement: viewCustomerStatement
 };
 
-console.log('✅ modules.js جاهز (محدّث - ألوان العملة + موافقة مزدوجة)');
+console.log('✅ modules.js جاهز (محدّث - دفعة مقدمة)');
