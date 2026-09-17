@@ -14,9 +14,9 @@
   <meta name="apple-mobile-web-app-title" content="قسم الحبل" />
   <meta name="application-name" content="قسم الحبل" />
   
-  <!-- Favicon (SVG مدمج - لا يحتاج ملف) -->
-  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 512 512'%3E%3Crect width='512' height='512' rx='100' fill='%231e3a8a'/%3E%3Ccircle cx='256' cy='256' r='180' fill='none' stroke='%233b82f6' stroke-width='8'/%3E%3Ctext x='256' y='330' text-anchor='middle' font-family='sans-serif' font-size='220' font-weight='800' fill='%23f59e0b'%3E%D8%AD%3C/text%3E%3C/svg%3E" />
-  <link rel="apple-touch-icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 512 512'%3E%3Crect width='512' height='512' rx='100' fill='%231e3a8a'/%3E%3Ccircle cx='256' cy='256' r='180' fill='none' stroke='%233b82f6' stroke-width='8'/%3E%3Ctext x='256' y='330' text-anchor='middle' font-family='sans-serif' font-size='220' font-weight='800' fill='%23f59e0b'%3E%D8%AD%3C/text%3E%3C/svg%3E" />
+  <!-- Favicon - الشعار SDH -->
+  <link rel="icon" type="image/png" href="assets/logo.png" />
+  <link rel="apple-touch-icon" href="assets/logo.png" />
 
   <!-- ═══════════ Fonts ═══════════ -->
   <link rel="preconnect" href="https://fonts.googleapis.com" />
@@ -34,19 +34,7 @@
   <!-- ═══════════ Splash ═══════════ -->
   <div id="splash" class="splash">
     <div class="splash-logo">
-      <svg viewBox="0 0 100 100" width="80" height="80">
-        <defs>
-          <linearGradient id="splashGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-            <stop offset="0%" stop-color="#3b82f6"/>
-            <stop offset="100%" stop-color="#f59e0b"/>
-          </linearGradient>
-        </defs>
-        <circle cx="50" cy="50" r="45" fill="none" stroke="url(#splashGrad)" stroke-width="3" opacity="0.3"/>
-        <circle cx="50" cy="50" r="35" fill="none" stroke="url(#splashGrad)" stroke-width="4" stroke-dasharray="10 5" stroke-linecap="round">
-          <animateTransform attributeName="transform" type="rotate" from="0 50 50" to="360 50 50" dur="3s" repeatCount="indefinite"/>
-        </circle>
-        <text x="50" y="58" text-anchor="middle" font-family="Cairo" font-size="26" font-weight="800" fill="url(#splashGrad)">ح</text>
-      </svg>
+      <img src="assets/logo.png" alt="SDH Logo" style="width:180px;height:auto;max-height:180px;object-fit:contain;filter:drop-shadow(0 8px 24px rgba(59,130,246,0.3));" />
     </div>
     <h1 class="splash-title">نظام قسم الحبل</h1>
     <p class="splash-subtitle">مصنع الصندل للأوعية البلاستيكية</p>
@@ -64,16 +52,7 @@
     <div class="login-container">
       <div class="login-card glass">
         <div class="login-logo">
-          <svg viewBox="0 0 100 100" width="64" height="64">
-            <defs>
-              <linearGradient id="loginGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-                <stop offset="0%" stop-color="#3b82f6"/>
-                <stop offset="100%" stop-color="#f59e0b"/>
-              </linearGradient>
-            </defs>
-            <circle cx="50" cy="50" r="46" fill="none" stroke="url(#loginGrad)" stroke-width="3"/>
-            <text x="50" y="62" text-anchor="middle" font-family="Cairo" font-size="34" font-weight="800" fill="url(#loginGrad)">ح</text>
-          </svg>
+          <img src="assets/logo.png" alt="SDH Logo" style="width:140px;height:auto;max-height:140px;object-fit:contain;display:block;margin:0 auto;filter:drop-shadow(0 6px 18px rgba(59,130,246,0.25));" />
         </div>
         <h1 class="login-title">نظام قسم الحبل</h1>
         <p class="login-subtitle">مصنع الصندل للأوعية البلاستيكية</p>
@@ -135,16 +114,7 @@
     <aside id="sidebar" class="sidebar">
       <div class="sidebar-header">
         <div class="sidebar-logo">
-          <svg viewBox="0 0 100 100" width="36" height="36">
-            <defs>
-              <linearGradient id="sbGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-                <stop offset="0%" stop-color="#3b82f6"/>
-                <stop offset="100%" stop-color="#f59e0b"/>
-              </linearGradient>
-            </defs>
-            <circle cx="50" cy="50" r="45" fill="none" stroke="url(#sbGrad)" stroke-width="4"/>
-            <text x="50" y="63" text-anchor="middle" font-family="Cairo" font-size="32" font-weight="800" fill="url(#sbGrad)">ح</text>
-          </svg>
+          <img src="assets/logo.png" alt="SDH Logo" style="width:42px;height:42px;object-fit:contain;border-radius:8px;" />
         </div>
         <div class="sidebar-brand">
           <h2>قسم الحبل</h2>
@@ -306,7 +276,7 @@
 
   <!-- ═══════════ PWA + Online Status ═══════════ -->
   <script>
-    // ═══ تسجيل Service Worker ═══
+    // تسجيل Service Worker
     if ('serviceWorker' in navigator) {
       window.addEventListener('load', () => {
         navigator.serviceWorker.register('./sw.js')
@@ -319,7 +289,7 @@
       });
     }
 
-    // ═══ زر التثبيت ═══
+    // زر التثبيت
     let deferredPrompt = null;
 
     window.addEventListener('beforeinstallprompt', (e) => {
@@ -344,7 +314,7 @@
       }
     });
 
-    // ═══ مراقبة الاتصال ═══
+    // مراقبة الاتصال
     function updateOnlineStatus() {
       const statusEl = document.getElementById('online-status');
       if (!statusEl) return;
