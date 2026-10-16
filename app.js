@@ -13,6 +13,7 @@ const AppState = {
   profile: null,
   permissions: {},
   role: 'viewer',
+  currencySymbol: 'ج.س',   // يُحمَّل من settings عند الدخول
   currentRoute: 'dashboard',
   cache: {},
   realtimeSubs: [],
@@ -86,14 +87,34 @@ const ICONS = {
 function formatCurrency(amount) {
   const num = Number(amount) || 0;
   const absNum = Math.abs(num);
-  
+  const sym = AppState.currencySymbol || 'ج.س';
+
   const formatted = new Intl.NumberFormat('en-US', {
     minimumFractionDigits: 0,
     maximumFractionDigits: 2
   }).format(absNum);
-  
-  if (num < 0) return '− ' + formatted + ' ج.س';
-  return formatted + ' ج.س';
+
+  if (num < 0) return '− ' + formatted + ' ' + sym;
+  return formatted + ' ' + sym;
+}
+
+/**
+ * ✅ تحميل رمز العملة من settings (يُستدعى عند الدخول وعند حفظ الإعدادات)
+ * previously: العملة كانت مكتوبة ثابتة داخل formatCurrency
+ */
+async function loadCurrencySettings() {
+  try {
+    const { data } = await window.SB.select('settings', {
+      select: 'key, value',
+      in: { key: ['currency_symbol', 'currency'] }
+    });
+    const map = {};
+    (data || []).forEach(s => { map[s.key] = s.value; });
+    if (map.currency_symbol) AppState.currencySymbol = map.currency_symbol;
+  } catch (err) {
+    console.warn('⚠️ تعذّر تحميل رمز العملة:', err.message || err);
+  }
+  return AppState.currencySymbol;
 }
 
 /**
@@ -105,13 +126,14 @@ function formatCurrencyShort(amount) {
   const absNum = Math.abs(num);
   const sign = num < 0 ? '− ' : '';
   
+  const sym = AppState.currencySymbol || 'ج.س';
   if (absNum >= 1000000) {
-    return sign + (absNum / 1000000).toFixed(2).replace(/\.?0+$/, '') + 'M ج.س';
+    return sign + (absNum / 1000000).toFixed(2).replace(/\.?0+$/, '') + 'M ' + sym;
   }
   if (absNum >= 1000) {
-    return sign + (absNum / 1000).toFixed(1).replace(/\.?0+$/, '') + 'K ج.س';
+    return sign + (absNum / 1000).toFixed(1).replace(/\.?0+$/, '') + 'K ' + sym;
   }
-  return sign + absNum.toFixed(0) + ' ج.س';
+  return sign + absNum.toFixed(0) + ' ' + sym;
 }
 
 /**
@@ -162,17 +184,31 @@ function formatDateTime(dateStr) {
   } catch { return dateStr; }
 }
 
-function todayISO() { return new Date().toISOString().split('T')[0]; }
+/**
+ * ✅ تاريخ ISO بصيغة التاريخ المحلي (بدون تحويل UTC).
+ * كان toISOString() يُرجع تاريخ UTC فتنزاح حدود الفترات يوماً كاملاً
+ * (مثال: فلترة "الشهر" كانت تبدأ من آخر يوم من الشهر السابق).
+ */
+function localISO(d = new Date()) {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
+function todayISO() { return localISO(); }
 function monthStartISO() {
   const d = new Date();
-  return new Date(d.getFullYear(), d.getMonth(), 1).toISOString().split('T')[0];
+  return localISO(new Date(d.getFullYear(), d.getMonth(), 1));
 }
 
 function weekStartISO() {
   const d = new Date();
   const day = d.getDay();
   const diff = d.getDate() - day;
-  return new Date(d.setDate(diff)).toISOString().split('T')[0];
+  const start = new Date(d);
+  start.setDate(diff);
+  return localISO(start);
 }
 
 function debounce(fn, delay = 250) {
@@ -340,6 +376,8 @@ function renderNavigation() {
 
   const allowedRoutes = Object.entries(ROUTES).filter(([key, r]) => {
     if (AppState.role === 'admin') return true;
+    // A-06: شاشة "صلاحياتي" قراءة ذاتية فقط — متاحة لكل المستخدمين دومًا
+    if (key === 'permissions') return true;
     return hasPermission(r.module, 'view');
   });
 
@@ -370,7 +408,7 @@ function navigateTo(route) {
     if (!ROUTES[route]) route = 'dashboard';
     const routeInfo = ROUTES[route];
 
-    if (AppState.role !== 'admin' && !hasPermission(routeInfo.module, 'view')) {
+    if (route !== 'permissions' && AppState.role !== 'admin' && !hasPermission(routeInfo.module, 'view')) {
       showToast('لا تملك صلاحية الوصول لهذه الشاشة', 'warning');
       route = 'dashboard';
     }
@@ -501,6 +539,12 @@ async function handleLogin(e) {
     const { data: profile } = await window.SB.getUserProfile(data.user.id);
     if (!profile) throw new Error('المستخدم غير مسجل في النظام');
 
+    // 🛑 A-03: منع دخول الحسابات المعطّلة (كان يُفحص فقط عند إعادة تحميل الصفحة)
+    if (profile.is_active === false) {
+      await window.SB.logout();
+      throw new Error('هذا الحساب معطّل — تواصل مع مدير النظام');
+    }
+
     AppState.user = data.user;
     AppState.profile = profile;
     AppState.role = profile.role;
@@ -544,6 +588,9 @@ async function enterApp() {
   document.getElementById('user-role').textContent = AppState.profile.role === 'admin' ? 'مدير النظام' : AppState.profile.role;
 
   renderNavigation();
+
+  // 🪙 تحميل رمز العملة من الإعدادات (كان مكتوبًا ثابتًا)
+  await loadCurrencySettings();
 
   const hash = window.location.hash.replace('#', '') || 'dashboard';
   navigateTo(hash);
@@ -665,11 +712,12 @@ function setupKeyboardShortcuts() {
 
     if (e.target.matches('input, textarea, select')) return;
 
-    const routes = ['dashboard', 'sales', 'returns', 'customers', 'suppliers', 'warehouse', 'treasury', 'expenses', 'journal', 'reconciliations', 'reports', 'permissions', 'audit'];
+    // F1..F12 → أول 12 مسارًا من قائمة المسارات الفعلية (تتضمن الآن settings)
+    const routes = Object.keys(ROUTES).slice(0, 12);
     const match = e.key.match(/^F(\d{1,2})$/);
     if (match) {
       const num = parseInt(match[1]);
-      if (num >= 1 && num <= 13) {
+      if (num >= 1 && num <= routes.length) {
         e.preventDefault();
         navigateTo(routes[num - 1]);
       }
@@ -727,22 +775,36 @@ function setupEventListeners() {
 /* ═══════════════════════════════════════════════════════════════
    14. معالج الأخطاء العام
    ═══════════════════════════════════════════════════════════════ */
+/**
+ * ✅ معالج أخطاء مُحسَّن:
+ * كان يبتلع بصمت كل خطأ يحوي "innerHTML" أو "Cannot set properties of null"،
+ * وهو ما يخفي أعطالًا حقيقية. الآن: نسجّل الخطأ كاملاً ثم نُظهر رسالة مناسبة
+ * للمستخدم فقط عندما يكون الخطأ DOM متوقعًا أثناء تبديل الشاشات.
+ */
 function setupGlobalErrorHandler() {
+  const isBenignDomRace = (msg) =>
+    /Cannot set (properties|reading) of null/.test(msg) ||
+    /innerHTML/.test(msg);
+
   window.addEventListener('error', (event) => {
     const msg = event.message || '';
-    if (msg.includes('innerHTML') || msg.includes('Cannot set properties of null')) {
-      console.warn('⚠️ تم تجاهل خطأ DOM مؤقت:', msg);
+    // نُسجّل دائمًا — لا نُخفي شيئًا
+    console.error('❌ خطأ غير معالَج:', {
+      message: msg,
+      source: event.filename,
+      line: event.lineno,
+      col: event.colno
+    });
+    if (isBenignDomRace(msg)) {
+      // خطأ سباق DOM معروف أثناء التنقل بين الشاشات — نمنعه من تعطيل التطبيق
       event.preventDefault();
-      return true;
     }
   });
 
   window.addEventListener('unhandledrejection', (event) => {
-    const msg = event.reason?.message || '';
-    if (msg.includes('innerHTML') || msg.includes('Cannot set properties of null')) {
-      console.warn('⚠️ تم تجاهل خطأ Promise مؤقت:', msg);
-      event.preventDefault();
-    }
+    const msg = (event.reason && event.reason.message) || String(event.reason || '');
+    console.error('❌ Promise مرفوض غير معالَج:', event.reason);
+    if (isBenignDomRace(msg)) event.preventDefault();
   });
 }
 
@@ -794,6 +856,12 @@ async function initApp() {
         const loadTime = Math.round(performance.now() - startTime);
         console.log(`⚡ النظام جاهز في ${loadTime}ms`);
         return;
+      }
+
+      // 🛑 حساب معطّل أو بلا ملف: إنهاء الجلسة فعلياً (كانت الجلسة تبقى صالحة)
+      if (session) {
+        console.warn('⚠️ جلسة مرفوضة (حساب معطّل أو بلا ملف) — تم تسجيل الخروج');
+        await window.SB.logout().catch(() => {});
       }
     }
 
