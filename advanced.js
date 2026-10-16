@@ -90,14 +90,14 @@ async function loadIncomeStatement() {
     const { data: sales } = await window.SB.select('sales', salesOpts);
     const revenue = sales.reduce((s, r) => s + Number(r.total), 0);
 
+    // ✅ N+1: كان استعلامًا لكل فاتورة — الآن استعلام مُجمَّع واحد
+    // ✅ B-16/B-10: يعتمد التكلفة المجمَّدة عند البيع إن توفّرت
     let costOfSales = 0;
-    for (const sale of sales) {
-      const { data: items } = await window.SB.select('sale_items', {
-        select: '*, products(cost_price)', eq: { sale_id: sale.id }
-      });
-      (items || []).forEach(i => {
-        costOfSales += Number(i.products?.cost_price || 0) * Number(i.quantity);
-      });
+    try {
+      costOfSales = await window.SB.getCostOfSales(sales.map(s => s.id));
+    } catch (costErr) {
+      console.error('❌ حساب تكلفة المبيعات:', costErr);
+      throw costErr;
     }
 
     const grossProfit = revenue - costOfSales;
@@ -366,11 +366,11 @@ async function openManualEntryModal() {
       <div style="margin-top:16px;padding:12px;background:rgba(59,130,246,0.08);border-radius:10px;">
         <div style="display:flex;justify-content:space-between;margin-bottom:4px;">
           <span style="color:var(--text-2);font-size:12px;">إجمالي المدين:</span>
-          <strong id="jv-debit-total">0 ج.س</strong>
+          <strong id="jv-debit-total">${window.App.formatCurrency(0)}</strong>
         </div>
         <div style="display:flex;justify-content:space-between;">
           <span style="color:var(--text-2);font-size:12px;">إجمالي الدائن:</span>
-          <strong id="jv-credit-total">0 ج.س</strong>
+          <strong id="jv-credit-total">${window.App.formatCurrency(0)}</strong>
         </div>
         <div id="jv-balance-status" style="margin-top:8px;font-size:12px;text-align:center;"></div>
       </div>
@@ -915,13 +915,13 @@ async function loadUsersList() {
           </div>
           <div style="display:flex;gap:6px;flex-wrap:wrap;">
             ${u.role !== 'admin' ? `
-              <button class="btn btn-sm btn-ghost" onclick="openEditPermissions('${u.id}', '${window.App.escapeHtml(u.full_name)}')">
+              <button class="btn btn-sm btn-ghost" onclick="openEditPermissions('${u.id}')">
                 ${window.App.icons.shield} الصلاحيات
               </button>
             ` : '<span class="badge badge-danger">كل الصلاحيات</span>'}
             <button class="btn btn-sm btn-ghost" onclick="openEditUser('${u.id}')">${window.App.icons.edit}</button>
             ${u.id !== window.App.state.user?.id ? `
-              <button class="btn btn-sm btn-danger" onclick="deleteUser('${u.id}', '${window.App.escapeHtml(u.full_name)}')">${window.App.icons.trash}</button>
+              <button class="btn btn-sm btn-danger" onclick="deleteUser('${u.id}')">${window.App.icons.trash}</button>
             ` : ''}
           </div>
         </div>
@@ -1083,9 +1083,14 @@ async function openEditUser(userId) {
 }
 
 async function deleteUser(userId, userName) {
+  // ✅ الاسم يُجلب من القائمة بدل تمريره عبر onclick (حماية XSS)
+  if (userName === undefined) {
+    const { data } = await window.SB.getById('users', userId).catch(() => ({ data: null }));
+    userName = data?.full_name || data?.email || userId;
+  }
   const ok = await window.App.confirmDialog(
-    `هل تريد حذف المستخدم "${userName}"؟ سيتم حذف الحساب نهائياً من Supabase (لا يمكن التراجع)`,
-    { title: 'حذف نهائي', type: 'danger', okText: 'حذف نهائي' }
+    `هل تريد حذف حساب "${userName}"؟\n\n• سيُحذف الحساب وصلاحياته نهائيًا.\n• ستبقى كل سجلاته المالية والتدقيق محفوظة (فواتير، قيود، حركات خزينة).`,
+    { title: 'حذف حساب', type: 'danger', okText: 'حذف الحساب' }
   );
   if (!ok) return;
 
@@ -1117,6 +1122,11 @@ async function deleteUser(userId, userName) {
 
 async function openEditPermissions(userId, userName) {
   try {
+    // ✅ الاسم يُجلب من القائمة بدل تمريره عبر onclick (حماية XSS)
+    if (userName === undefined) {
+      const { data: uRow } = await window.SB.getById('users', userId).catch(() => ({ data: null }));
+      userName = uRow?.full_name || uRow?.email || userId;
+    }
     const { data: perms } = await window.SB.getUserPermissions(userId);
     const permsMap = {};
     (perms || []).forEach(p => { permsMap[p.module] = p; });
@@ -1501,6 +1511,21 @@ const BACKUP_TABLES = [
   'settings'
 ];
 
+/** حفظ كائن JSON كملف تنزيل */
+function saveJsonFile(obj, filename) {
+  const jsonString = JSON.stringify(obj, null, 2);
+  const blob = new Blob([jsonString], { type: 'application/json;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+  return blob.size;
+}
+
 function updateBackupProgress(percent, label) {
   const progress = document.getElementById('backup-progress');
   const fill = document.getElementById('backup-progress-fill');
@@ -1522,6 +1547,162 @@ function hideBackupProgress() {
   }, 800);
 }
 
+/**
+ * ✅ بناء نسخة احتياطية كاملة مع كشف صريح للقراءة الناقصة.
+ * الاستعلام العادي يُقتطع عند حد max-rows بدون رسالة خطأ، لذا نستخدم
+ * selectAll التي تقرأ على صفحات وتُرجع علامة complete.
+ */
+async function buildBackupObject(onProgress) {
+  const backup = {
+    version: '2.1',
+    app: 'sandal-raw-materials',
+    export_date: new Date().toISOString(),
+    export_date_local: new Date().toLocaleString('ar-SD'),
+    company: 'مصنع الصندل للأوعية البلاستيكية',
+    tables: {},
+    counts: {},
+    failed_tables: [],
+    incomplete: false,
+    total_records: 0
+  };
+
+  let totalRecords = 0;
+  const totalTables = BACKUP_TABLES.length;
+
+  for (let i = 0; i < BACKUP_TABLES.length; i++) {
+    const table = BACKUP_TABLES[i];
+    if (onProgress) onProgress((i / totalTables) * 100, `جاري قراءة: ${table}`);
+
+    try {
+      const res = await window.SB.selectAll(table, {});
+      backup.tables[table] = res.data || [];
+      backup.counts[table] = (res.data || []).length;
+      totalRecords += (res.data || []).length;
+
+      if (res.error || !res.complete) {
+        backup.incomplete = true;
+        backup.failed_tables.push({ table, error: res.error || 'قراءة غير مكتملة' });
+        console.error(`❌ نسخة احتياطية: جدول ${table} غير مكتمل`, res.error || '');
+      }
+    } catch (err) {
+      backup.incomplete = true;
+      backup.tables[table] = [];
+      backup.counts[table] = 0;
+      backup.failed_tables.push({ table, error: err.message || String(err) });
+      console.error(`❌ نسخة احتياطية: فشل جدول ${table}`, err);
+    }
+  }
+
+  backup.total_records = totalRecords;
+  return { backup, totalRecords, totalTables };
+}
+
+/**
+ * ✅ تحقق كامل من ملف النسخة الاحتياطية قبل لمس أي بيانات.
+ * لا يحذف ولا يُدخل شيء — يُرجع قائمة أخطاء وملاحظات فقط.
+ */
+function validateBackupFile(backup) {
+  const errors = [];
+  const warnings = [];
+
+  if (!backup || typeof backup !== 'object' || Array.isArray(backup)) {
+    return { ok: false, errors: ['الملف ليس كائن JSON صالح'], warnings };
+  }
+  if (!backup.tables || typeof backup.tables !== 'object' || Array.isArray(backup.tables)) {
+    return { ok: false, errors: ['الملف لا يحتوي على قسم tables'], warnings };
+  }
+
+  const known = new Set(BACKUP_TABLES);
+  Object.keys(backup.tables).forEach(t => {
+    if (!known.has(t)) warnings.push(`جدول غير معروف سيُهمَل: ${t}`);
+  });
+
+  const idSets = {};
+  const pkColumn = (t) => (t === 'settings' ? 'key' : 'id');
+
+  BACKUP_TABLES.forEach(t => {
+    const rows = backup.tables[t];
+    if (rows === undefined) {
+      warnings.push(`الجدول ${t} غير موجود في الملف`);
+      return;
+    }
+    if (!Array.isArray(rows)) {
+      errors.push(`${t}: المحتوى ليس مصفوفة سجلات`);
+      return;
+    }
+
+    const pk = pkColumn(t);
+    const seen = new Set();
+    rows.forEach((r, i) => {
+      if (!r || typeof r !== 'object' || Array.isArray(r)) {
+        errors.push(`${t}: السجل رقم ${i + 1} غير صالح`);
+        return;
+      }
+      if (r[pk] === undefined || r[pk] === null) {
+        errors.push(`${t}: السجل رقم ${i + 1} بلا مفتاح ${pk}`);
+        return;
+      }
+      const key = String(r[pk]);
+      if (seen.has(key)) errors.push(`${t}: مفتاح مكرر ${key}`);
+      seen.add(key);
+    });
+
+    if (backup.counts && backup.counts[t] !== undefined && Number(backup.counts[t]) !== rows.length) {
+      errors.push(`${t}: العدد المعلن ${backup.counts[t]} ≠ العدد الفعلي ${rows.length}`);
+    }
+    idSets[t] = seen;
+  });
+
+  // فحص الروابط بين الجداول (يمنع فشل الاستيراد بعد الحذف)
+  const relations = [
+    ['sale_items', 'sale_id', 'sales'],
+    ['sale_payments', 'sale_id', 'sales'],
+    ['return_items', 'return_id', 'returns'],
+    ['returns', 'sale_id', 'sales'],
+    ['purchase_items', 'purchase_id', 'purchases'],
+    ['journal_lines', 'entry_id', 'journal_entries'],
+    ['sale_items', 'product_id', 'products'],
+    ['warehouse_transactions', 'product_id', 'products']
+  ];
+
+  relations.forEach(([child, col, parent]) => {
+    const childRows = backup.tables[child];
+    if (!Array.isArray(childRows) || childRows.length === 0) return;
+
+    const parentRows = backup.tables[parent];
+    if (!Array.isArray(parentRows)) {
+      errors.push(`${child}: يحتوي سجلات لكن الجدول المرجعي ${parent} مفقود من الملف`);
+      return;
+    }
+    const pIds = idSets[parent] || new Set();
+    const orphans = childRows.filter(r => r && r[col] != null && !pIds.has(String(r[col])));
+    if (orphans.length > 0) {
+      errors.push(`${child}: ${orphans.length} سجل يشير إلى ${col} غير موجود في ${parent}`);
+    }
+  });
+
+  const total = Number(backup.total_records);
+  if (Number.isFinite(total)) {
+    const actual = BACKUP_TABLES.reduce((s, t) => s + (Array.isArray(backup.tables[t]) ? backup.tables[t].length : 0), 0);
+    if (total !== actual) warnings.push(`total_records المعلن ${total} ≠ المجموع الفعلي ${actual}`);
+  }
+  if (backup.incomplete === true) {
+    warnings.push('الملف مُعلَّم كنسخة ناقصة (incomplete)');
+  }
+
+  return { ok: errors.length === 0, errors, warnings };
+}
+
+/** حذف صفوف جدول كامل مع تتبّع الخطأ (بدون تجاهل صامت) */
+async function deleteTableRows(table) {
+  let query = window.SB.client.from(table).delete();
+  if (table === 'settings') query = query.neq('key', '___never___');
+  else query = query.neq('id', '00000000-0000-0000-0000-000000000000');
+
+  const { error } = await query;
+  if (error) throw new Error(`${table}: ${error.message}`);
+}
+
 async function downloadBackup() {
   const confirmed = await window.App.confirmDialog(
     'سيتم تنزيل نسخة كاملة من جميع البيانات. هل تريد المتابعة؟',
@@ -1532,48 +1713,24 @@ async function downloadBackup() {
   try {
     updateBackupProgress(0, 'جاري التحضير...');
 
-    const backup = {
-      version: '2.0',
-      export_date: new Date().toISOString(),
-      export_date_local: new Date().toLocaleString('ar-SD'),
-      company: 'مصنع الصندل للأوعية البلاستيكية',
-      tables: {},
-      counts: {},
-      total_records: 0
-    };
+    const { backup, totalRecords, totalTables } = await buildBackupObject((pct, label) => updateBackupProgress(pct, label));
 
-    let totalRecords = 0;
-    const totalTables = BACKUP_TABLES.length;
-
-    for (let i = 0; i < BACKUP_TABLES.length; i++) {
-      const table = BACKUP_TABLES[i];
-      const percent = (i / totalTables) * 100;
-      updateBackupProgress(percent, `جاري قراءة: ${table}`);
-
-      try {
-        const { data, error } = await window.SB.select(table, {});
-        if (error) {
-          backup.tables[table] = [];
-          backup.counts[table] = 0;
-        } else {
-          backup.tables[table] = data || [];
-          backup.counts[table] = (data || []).length;
-          totalRecords += (data || []).length;
-        }
-      } catch (err) {
-        backup.tables[table] = [];
-        backup.counts[table] = 0;
-      }
+    if (backup.incomplete) {
+      const list = backup.failed_tables.map(f => `• ${f.table}: ${f.error}`).join('\n');
+      const proceed = await window.App.confirmDialog(
+        `تعذّر قراءة بعض الجداول بشكل كامل:\n${list}\n\nتنزيل ملف ناقص لا يُعدّ نسخة احتياطية صالحة. هل تريد تنزيله باسم يدل على النقص؟`,
+        { title: 'نسخة احتياطية غير مكتملة', type: 'danger', okText: 'تنزيل الجزئي' }
+      );
+      if (!proceed) { hideBackupProgress(); return; }
     }
 
-    backup.total_records = totalRecords;
     updateBackupProgress(95, 'جاري التجهيز...');
 
     const jsonString = JSON.stringify(backup, null, 2);
     const blob = new Blob([jsonString], { type: 'application/json;charset=utf-8;' });
 
     const now = new Date();
-    const filename = `backup-sandal-${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}-${String(now.getHours()).padStart(2, '0')}${String(now.getMinutes()).padStart(2, '0')}.json`;
+    const filename = `backup-sandal-${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}-${String(now.getHours()).padStart(2, '0')}${String(now.getMinutes()).padStart(2, '0')}${backup.incomplete ? '-PARTIAL' : ''}.json`;
 
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -1590,14 +1747,24 @@ async function downloadBackup() {
     await window.SB.logAudit('create', 'backup', null, {
       file: filename,
       records: totalRecords,
-      size_kb: Math.round(blob.size / 1024)
+      size_kb: Math.round(blob.size / 1024),
+      incomplete: backup.incomplete,
+      failed_tables: backup.failed_tables.map(f => f.table)
     });
 
-    window.App.showToast(
-      `تم تنزيل ${totalRecords.toLocaleString('ar-SD')} سجل من ${totalTables} جدول`,
-      'success',
-      'نسخة احتياطية'
-    );
+    if (backup.incomplete) {
+      window.App.showToast(
+        `تنزيل جزئي: ${totalRecords.toLocaleString('ar-SD')} سجل — ${backup.failed_tables.length} جدول غير مكتمل`,
+        'warning',
+        'نسخة احتياطية غير مكتملة'
+      );
+    } else {
+      window.App.showToast(
+        `تم تنزيل ${totalRecords.toLocaleString('ar-SD')} سجل من ${totalTables} جدول`,
+        'success',
+        'نسخة احتياطية'
+      );
+    }
   } catch (err) {
     console.error('❌ downloadBackup:', err);
     window.App.showToast('فشل النسخ الاحتياطي: ' + err.message, 'error');
@@ -1633,6 +1800,8 @@ function openImportModal() {
       <h4 style="font-size:13px;font-weight:700;margin-bottom:10px;color:var(--primary-2);">📊 ملخص المحتوى</h4>
       <div id="import-tables-list" style="max-height:250px;overflow-y:auto;font-size:12.5px;"></div>
     </div>
+
+    <div id="import-validation" style="display:none;margin-top:16px;padding:14px;border-radius:12px;font-size:12.5px;"></div>
 
     <div style="margin-top:16px;padding:12px;background:rgba(239,68,68,0.08);border-radius:10px;font-size:12px;color:var(--text-2);">
       ⚠️ <strong>تحذير:</strong> الاستيراد <strong>سيحذف كل البيانات الحالية</strong> ويستبدلها بالبيانات من الملف.
@@ -1702,10 +1871,36 @@ function openImportModal() {
         </div>
       `).join('');
 
-      document.getElementById('import-summary').style.display = 'block';
-      document.getElementById('do-import-btn').disabled = false;
+      // ✅ تحقق كامل قبل تمكين الزر — لا استيراد لملف غير صالح
+      const report = validateBackupFile(backupData);
+      const vBox = document.getElementById('import-validation');
+      if (vBox) {
+        const maxWarnings = 8;
+        const shownWarnings = report.warnings.slice(0, maxWarnings);
+        const moreWarnings = report.warnings.length - shownWarnings.length;
+        const warningsHtml = report.warnings.length
+          ? `<div style="margin-top:8px;color:var(--text-2);">ملاحظات:<br>${shownWarnings.map(w => '• ' + window.App.escapeHtml(w)).join('<br>')}${moreWarnings > 0 ? `<br>… و${moreWarnings} ملاحظة أخرى (التفاصيل في سجل الـ console)` : ''}</div>`
+          : '';
+        if (report.warnings.length > maxWarnings) console.warn('⚠️ ملاحظات الاستيراد:', report.warnings);
+        vBox.style.display = 'block';
+        if (report.ok) {
+          vBox.style.background = 'rgba(16,185,129,0.1)';
+          vBox.style.border = '1px solid rgba(16,185,129,0.3)';
+          vBox.innerHTML = `<strong style="color:var(--success);">✅ الملف سليم — اجتاز ${report.errors.length === 0 ? 'كل ' : ''}فحوص البنية والعلاقات.</strong>` + warningsHtml;
+        } else {
+          vBox.style.background = 'rgba(239,68,68,0.1)';
+          vBox.style.border = '1px solid rgba(239,68,68,0.35)';
+          vBox.innerHTML = `<strong style="color:var(--danger);">❌ الملف غير صالح — الاستيراد معطّل (${report.errors.length} مشكلة):</strong>` +
+            `<div style="margin-top:8px;color:var(--text-2);">${report.errors.slice(0, 20).map(e => '• ' + window.App.escapeHtml(e)).join('<br>')}</div>` +
+            (report.errors.length > 20 ? `<div style="margin-top:4px;">… و${report.errors.length - 20} أخرى</div>` : '');
+        }
+      }
 
-      window.App.showToast('الملف صالح ✓', 'success');
+      document.getElementById('import-summary').style.display = 'block';
+      document.getElementById('do-import-btn').disabled = !report.ok;
+
+      if (report.ok) window.App.showToast('الملف سليم ✓', 'success');
+      else window.App.showToast('الملف غير صالح — راجع قائمة الأخطاء', 'error');
     } catch (err) {
       console.error('❌ handleImportFile:', err);
       window.App.showToast('فشل قراءة الملف: ' + err.message, 'error');
@@ -1725,8 +1920,14 @@ function openImportModal() {
     const unlock = window.App.lockProcessing(btn, 'جاري الاستيراد...');
 
     try {
+      // 1️⃣ تحقق نهائي قبل لمس أي بيانات
+      const report = validateBackupFile(backupData);
+      if (!report.ok) {
+        throw new Error(`الملف غير صالح (${report.errors.length} مشكلة): ${report.errors[0]}`);
+      }
+
       const confirmed = await window.App.confirmDialog(
-        `سيتم حذف كل البيانات الحالية واستبدالها بـ ${(backupData.total_records || 0).toLocaleString('ar-SD')} سجل.\n\nهل أنت متأكد؟`,
+        `سيتم حذف كل البيانات الحالية واستبدالها بـ ${(backupData.total_records || 0).toLocaleString('ar-SD')} سجل.\n\nسيتم أخذ لقطة أمان لبياناتك قبل الحذف. هل أنت متأكد؟`,
         { title: 'تأكيد الاستيراد', type: 'danger', okText: 'استيراد' }
       );
 
@@ -1737,52 +1938,109 @@ function openImportModal() {
       if (progressCard) progressCard.classList.add('active');
 
       const totalTables = BACKUP_TABLES.length;
-      let restoredRecords = 0;
 
-      // حذف البيانات الحالية
-      const reversedTables = [...BACKUP_TABLES].reverse();
-      for (const table of reversedTables) {
+      // 2️⃣ لقطة أمان للبيانات الحالية قبل أي حذف (تعيد الاستعادة عند الفشل)
+      let snapshotName = null;
+      updateBackupProgress(3, 'جاري أخذ لقطة أمان...');
+      try {
+        const { backup: snapshot } = await buildBackupObject();
+        snapshot.safety_snapshot = true;
+        snapshot.note = 'لقطة أمان مأخوذة تلقائياً قبل عملية استيراد';
+        const now = new Date();
+        snapshotName = `pre-restore-${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}-${String(now.getHours()).padStart(2, '0')}${String(now.getMinutes()).padStart(2, '0')}.json`;
+        saveJsonFile(snapshot, snapshotName);
+        if (snapshot.incomplete) {
+          console.warn('⚠️ لقطة الأمان غير مكتملة', snapshot.failed_tables);
+        }
+      } catch (snapErr) {
+        const proceed = await window.App.confirmDialog(
+          `تعذّر أخذ لقطة أمان للبيانات الحالية:\n${snapErr.message || snapErr}\n\nهل تريد المتابعة دون لقطة؟`,
+          { title: 'تحذير', type: 'danger', okText: 'متابعة' }
+        );
+        if (!proceed) { unlock(); hideBackupProgress(); return; }
+      }
+
+      // 3️⃣ حذف بترتيب آمن يراعي المفاتيح الأجنبية — إيقاف عند أول خطأ
+      const tablesToRestore = BACKUP_TABLES.filter(t => Array.isArray(backupData.tables[t]));
+      const skipped = BACKUP_TABLES.filter(t => !Array.isArray(backupData.tables[t]));
+      if (skipped.length) console.warn('⚠️ جداول غير موجودة في الملف (لم تُمس):', skipped);
+
+      const reversedTables = [...tablesToRestore].reverse();
+      for (let i = 0; i < reversedTables.length; i++) {
+        const table = reversedTables[i];
+        updateBackupProgress(5 + (i / reversedTables.length) * 25, `جاري حذف: ${table}`);
         try {
-          await window.SB.client
-            .from(table)
-            .delete()
-            .neq('id', '00000000-0000-0000-0000-000000000000');
-        } catch (err) {
-          console.warn(`⚠️ حذف ${table}:`, err.message);
+          await deleteTableRows(table);
+        } catch (delErr) {
+          throw new Error(`توقف الحذف في الجدول ${table}: ${delErr.message}\nلم يُحذف أي جدول بعد هذا الجدول. أعد الاستيراد بعد حل المشكلة${snapshotName ? `، أو استعد لقطة الأمان ${snapshotName}` : ''}.`);
         }
       }
 
-      // استيراد البيانات
-      for (let i = 0; i < BACKUP_TABLES.length; i++) {
-        const table = BACKUP_TABLES[i];
-        const percent = (i / totalTables) * 100;
-        updateBackupProgress(percent, `جاري استعادة: ${table}`);
+      // 4️⃣ استيراد — مع إيقاف عند أول فشل وعدم الإبلاغ بالنجاح عند النقص
+      const expectedRecords = tablesToRestore.reduce((s, t) => s + (backupData.tables[t] || []).length, 0);
+      const failed = [];
+      let restoredRecords = 0;
 
+      for (let i = 0; i < tablesToRestore.length && failed.length === 0; i++) {
+        const table = tablesToRestore[i];
         const rows = backupData.tables[table] || [];
         if (rows.length === 0) continue;
 
-        try {
-          const batchSize = 100;
-          for (let j = 0; j < rows.length; j += batchSize) {
-            const batch = rows.slice(j, j + batchSize);
-            const { error } = await window.SB.insertMany(table, batch);
-            if (!error) restoredRecords += batch.length;
+        updateBackupProgress(30 + (i / tablesToRestore.length) * 70, `جاري استعادة: ${table}`);
+
+        const batchSize = 100;
+        for (let j = 0; j < rows.length; j += batchSize) {
+          const batch = rows.slice(j, j + batchSize);
+          const { error } = await window.SB.insertMany(table, batch);
+          if (error) {
+            failed.push({ table, error: error, offset: j });
+            console.error(`❌ استيراد ${table} عند السجل ${j + 1}:`, error);
+            break;
           }
-        } catch (err) {
-          console.warn(`⚠️ استيراد ${table}:`, err);
+          restoredRecords += batch.length;
         }
+      }
+
+      // 5️⃣ الحكم النهائي: نجاح كامل فقط إذا لم يفشل أي شيء وتطابقت الأعداد
+      const isComplete = failed.length === 0 && restoredRecords === expectedRecords;
+
+      if (!isComplete) {
+        const reason = failed.length
+          ? `فشل استيراد ${failed[0].table} عند السجل ${failed[0].offset + 1}: ${failed[0].error}`
+          : `عدد السجلات المستعادة ${restoredRecords} من ${expectedRecords}`;
+
+        updateBackupProgress(100, '❌ الاستيراد غير مكتمل');
+        hideBackupProgress();
+
+        await window.SB.logAudit('create', 'restore', null, {
+          status: 'failed',
+          restored_records: restoredRecords,
+          expected: expectedRecords,
+          failed_table: failed[0] ? failed[0].table : null,
+          snapshot: snapshotName
+        }).catch(() => {});
+
+        window.App.showToast(
+          `الاستيراد غير مكتمل — ${reason}. البيانات الحالية حُذفت جزئياً؛ استعد لقطة الأمان${snapshotName ? ` (${snapshotName})` : ''}.`,
+          'error',
+          'الاستيراد فشل'
+        );
+        unlock();
+        return;
       }
 
       updateBackupProgress(100, '✅ تم بنجاح');
       hideBackupProgress();
 
       await window.SB.logAudit('create', 'restore', null, {
+        status: 'success',
         restored_records: restoredRecords,
-        tables_count: totalTables
-      });
+        tables_count: tablesToRestore.length,
+        snapshot: snapshotName
+      }).catch(() => {});
 
       window.App.showToast(
-        `تم استعادة ${restoredRecords.toLocaleString('ar-SD')} سجل بنجاح`,
+        `تم استعادة ${restoredRecords.toLocaleString('ar-SD')} سجل من ${tablesToRestore.length} جدول بنجاح`,
         'success',
         'الاستيراد'
       );
@@ -1790,7 +2048,8 @@ function openImportModal() {
       setTimeout(() => location.reload(), 2000);
     } catch (err) {
       console.error('❌ import error:', err);
-      window.App.showToast('فشل الاستيراد: ' + err.message, 'error');
+      window.App.showToast('فشل الاستيراد: ' + err.message, 'error', 'الاستيراد');
+      hideBackupProgress();
       unlock();
     }
   });
@@ -1801,6 +2060,7 @@ async function exportAllToExcel() {
     updateBackupProgress(0, 'جاري التحضير...');
 
     const allData = {};
+    const incompleteTables = [];
     const totalTables = BACKUP_TABLES.length;
 
     for (let i = 0; i < BACKUP_TABLES.length; i++) {
@@ -1808,10 +2068,15 @@ async function exportAllToExcel() {
       updateBackupProgress((i / totalTables) * 90, `جاري قراءة: ${table}`);
 
       try {
-        const { data } = await window.SB.select(table, {});
-        allData[table] = data || [];
-      } catch {
+        const res = await window.SB.selectAll(table, {});
+        allData[table] = res.data || [];
+        if (res.error || !res.complete) {
+          incompleteTables.push(`${table} (${res.error || 'قراءة ناقصة'})`);
+          console.error(`❌ تصدير Excel: ${table} غير مكتمل`, res.error || '');
+        }
+      } catch (err) {
         allData[table] = [];
+        incompleteTables.push(`${table} (${err.message || err})`);
       }
     }
 
@@ -1823,6 +2088,9 @@ async function exportAllToExcel() {
 
     rows.push(['مصنع الصندل للأوعية البلاستيكية - قسم الحبل']);
     rows.push(['تقرير شامل - ' + dateStr]);
+    if (incompleteTables.length) {
+      rows.push(['⚠️ تنبيه: التصدير ناقص — جداول لم تُقرأ بالكامل: ' + incompleteTables.join(' | ')]);
+    }
     rows.push([]);
 
     for (const table of BACKUP_TABLES) {
@@ -1866,10 +2134,15 @@ async function exportAllToExcel() {
 
     await window.SB.logAudit('create', 'export_excel', null, {
       tables: BACKUP_TABLES.length,
-      date: dateStr
+      date: dateStr,
+      incomplete: incompleteTables
     });
 
-    window.App.showToast('تم تصدير كل البيانات بنجاح', 'success');
+    if (incompleteTables.length) {
+      window.App.showToast(`التصدير ناقص — ${incompleteTables.length} جدول لم يُقرأ بالكامل`, 'warning', 'تصدير Excel');
+    } else {
+      window.App.showToast('تم تصدير كل البيانات بنجاح', 'success');
+    }
   } catch (err) {
     console.error('❌ exportAllToExcel:', err);
     window.App.showToast('فشل التصدير: ' + err.message, 'error');
@@ -1929,7 +2202,10 @@ window.Advanced = {
   permIcon,
   downloadBackup,
   openImportModal,
-  exportAllToExcel
+  exportAllToExcel,
+  validateBackupFile,   // ✅ مُصدَّر للاختبار
+  buildBackupObject,    // ✅ مُصدَّر للاختبار
+  BACKUP_TABLES
 };
 
 console.log('✅ advanced.js جاهز (محدّث + صلاحيات شخصية + موافقة مزدوجة)');
