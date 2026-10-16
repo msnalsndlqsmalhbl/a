@@ -216,7 +216,7 @@ async function openNewReturnModal() {
         <div style="margin-top:16px;padding:16px;background:rgba(245,158,11,0.08);border-radius:12px;">
           <div style="display:flex;justify-content:space-between;">
             <span style="font-weight:700;">إجمالي المرتجع:</span>
-            <strong id="ret-total" style="font-size:18px;color:var(--accent);">0 ج.س</strong>
+            <strong id="ret-total" style="font-size:18px;color:var(--accent);">${window.App.formatCurrency(0)}</strong>
           </div>
         </div>
 
@@ -256,7 +256,7 @@ async function openNewReturnModal() {
         itemsContainer.innerHTML = '<p style="text-align:center;color:var(--text-3);font-size:13px;padding:20px;">اختر الفاتورة أولاً</p>';
         addItemBtn.disabled = true;
         document.getElementById('sale-info').style.display = 'none';
-        document.getElementById('ret-total').textContent = '0 ج.س';
+        document.getElementById('ret-total').textContent = window.App.formatCurrency(0);
         return;
       }
 
@@ -394,7 +394,9 @@ async function saveNewReturn() {
 
     // اعتماد مباشر
     const { error: apprErr } = await window.SB.approveReturn(ret.id);
-    if (apprErr) throw new Error(apprErr);
+    if (apprErr) {
+      throw new Error(`تم إنشاء المرتجع ${ret.return_number} بحالة "قيد الانتظار" لكن تعذّر اعتماده: ${apprErr}. لن تتغير المخزون أو الأرصدة حتى يُعتمد.`);
+    }
 
     window.App.showToast('تم حفظ واعتماد المرتجع بنجاح', 'success');
     window.App.closeModal();
@@ -402,6 +404,7 @@ async function saveNewReturn() {
   } catch (err) {
     console.error('❌ saveNewReturn:', err);
     window.App.showToast(err.message, 'error');
+    try { if (window.App.state.currentRoute === 'returns') await loadReturnsList(); } catch {}
   } finally {
     unlock();
   }
