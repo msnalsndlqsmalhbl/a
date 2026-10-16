@@ -232,6 +232,48 @@ async function generateReturnNumber() {
 }
 
 /* ═══════════════════════════════════════════════════════════════
+   4م. أدوات الحماية المالية (جديدة)
+   ═══════════════════════════════════════════════════════════════ */
+
+const VALID_PAYMENT_TYPES = ['cash', 'bank', 'extra_box'];
+
+/** إدراج إلزامي: يرمي خطأ بدل تجاهل الفشل بصمت */
+async function mustInsert(table, payload) {
+  const { data, error } = await sb.from(table).insert(payload).select().maybeSingle();
+  if (error) throw new Error(`${table}: ${error.message}`);
+  return data;
+}
+
+/**
+ * ✅ حفظ بنود القيد مع ضمان التوازن.
+ * إذا فشل الحفظ أو كان القيد غير متوازن/فارغ، يُحذف رأس القيد الذي
+ * أُنشئ للتو حتى لا يتراكم قيود فارغة أو غير متوازنة في دفتر الأستاذ.
+ */
+async function commitJournalLines(entry, lines) {
+  if (!entry || !entry.id) throw new Error('تعذّر إنشاء رأس القيد');
+
+  const cleanup = async (msg) => {
+    try { await sb.from('journal_entries').delete().eq('id', entry.id); } catch {}
+    throw new Error(msg);
+  };
+
+  if (!Array.isArray(lines) || lines.length === 0) {
+    await cleanup('القيد لم يُنشأ: حسابات مطلوبة غير موجودة في دليل الحسابات');
+  }
+
+  const totalDebit = lines.reduce((s, l) => s + Number(l.debit || 0), 0);
+  const totalCredit = lines.reduce((s, l) => s + Number(l.credit || 0), 0);
+  if (Math.abs(totalDebit - totalCredit) > 0.01) {
+    await cleanup(`القيد غير متوازن: مدين ${totalDebit} ≠ دائن ${totalCredit}`);
+  }
+
+  const { error } = await sb.from('journal_lines').insert(lines);
+  if (error) await cleanup('فشل حفظ بنود القيد: ' + error.message);
+
+  return true;
+}
+
+/* ═══════════════════════════════════════════════════════════════
    5. القيود التلقائية
    ═══════════════════════════════════════════════════════════════ */
 
@@ -243,7 +285,7 @@ async function autoJournalForSale(sale, items) {
     const entryNumber = await generateEntryNumber();
     const { data: entry, error: eErr } = await sb.from('journal_entries').insert({
       entry_number: entryNumber,
-      date: new Date().toISOString().split('T')[0],
+      date: localISO(),
       description: `فاتورة مبيعات ${sale.invoice_number}`,
       ref_type: 'sale',
       ref_id: sale.id,
@@ -273,7 +315,28 @@ async function autoJournalForSale(sale, items) {
       lines.push({ entry_id: entry.id, account_id: revAcc.id, debit: 0, credit: sale.total, description: 'إيراد مبيعات' });
     }
 
-    if (lines.length > 0) await sb.from('journal_lines').insert(lines);
+    // ✅ قيد تكلفة المبيعات (COGS) — بموافقة محاسبية صريحة (2026-10-15):
+    //    مدين 5100 تكلفة المبيعات / دائن 1400 المخزون
+    //    القيمة = التكلفة المجمَّدة عند البيع إن توفّرت، وإلا تكلفة المنتج الحالية.
+    let cogsAmount = 0;
+    try {
+      cogsAmount = await getCostOfSales([sale.id], { warehouseOnly: true });
+    } catch (cogsErr) {
+      console.error('🛑 حساب تكلفة المبيعات فشل:', cogsErr.message);
+    }
+
+    if (cogsAmount > 0) {
+      const cogsAcc = findAcc('5100');
+      const invAcc = findAcc('1400');
+      if (cogsAcc && invAcc) {
+        lines.push({ entry_id: entry.id, account_id: cogsAcc.id, debit: cogsAmount, credit: 0, description: 'تكلفة المبيعات' });
+        lines.push({ entry_id: entry.id, account_id: invAcc.id, debit: 0, credit: cogsAmount, description: 'صرف مخزون - تكلفة المبيعات' });
+      } else {
+        console.error('🛑 لم يُسجَّل قيد التكلفة: الحساب 5100 (تكلفة المبيعات) و/أو 1400 (المخزون) غير موجود — راجع دليل الحسابات');
+      }
+    }
+
+    await commitJournalLines(entry, lines);
   } catch (err) {
     console.warn('⚠️ فشل القيد التلقائي:', err.message);
   }
@@ -287,7 +350,7 @@ async function autoJournalForExpense(expense) {
     const entryNumber = await generateEntryNumber();
     const { data: entry } = await sb.from('journal_entries').insert({
       entry_number: entryNumber,
-      date: new Date().toISOString().split('T')[0],
+      date: localISO(),
       description: `مصروف: ${expense.category}`,
       ref_type: 'expense',
       ref_id: expense.id,
@@ -309,7 +372,7 @@ async function autoJournalForExpense(expense) {
       lines.push({ entry_id: entry.id, account_id: bankAcc.id, debit: 0, credit: expense.amount, description: 'دفع بنك' });
     }
 
-    if (lines.length > 0) await sb.from('journal_lines').insert(lines);
+    await commitJournalLines(entry, lines);
   } catch (err) {
     console.warn('⚠️ فشل قيد المصروف:', err.message);
   }
@@ -323,7 +386,7 @@ async function autoJournalForCustomerPayment(payment, customer) {
     const entryNumber = await generateEntryNumber();
     const { data: entry } = await sb.from('journal_entries').insert({
       entry_number: entryNumber,
-      date: new Date().toISOString().split('T')[0],
+      date: localISO(),
       description: `سداد من العميل ${customer.name}`,
       ref_type: 'customer_payment',
       ref_id: payment.id,
@@ -350,7 +413,7 @@ async function autoJournalForCustomerPayment(payment, customer) {
       lines.push({ entry_id: entry.id, account_id: custAcc.id, debit: 0, credit: payment.amount, description: 'تخفيض ذمة العميل' });
     }
 
-    if (lines.length > 0) await sb.from('journal_lines').insert(lines);
+    await commitJournalLines(entry, lines);
   } catch (err) {
     console.warn('⚠️ فشل قيد السداد:', err.message);
   }
@@ -365,7 +428,7 @@ async function autoJournalForCustomerAdvancePayment(payment, customer) {
     const entryNumber = await generateEntryNumber();
     const { data: entry } = await sb.from('journal_entries').insert({
       entry_number: entryNumber,
-      date: new Date().toISOString().split('T')[0],
+      date: localISO(),
       description: `دفعة مقدمة من العميل ${customer.name}`,
       ref_type: 'customer_advance_payment',
       ref_id: payment.id,
@@ -396,7 +459,7 @@ async function autoJournalForCustomerAdvancePayment(payment, customer) {
       lines.push({ entry_id: entry.id, account_id: custAcc.id, debit: 0, credit: payment.amount, description: 'دفعة مقدمة من العميل' });
     }
 
-    if (lines.length > 0) await sb.from('journal_lines').insert(lines);
+    await commitJournalLines(entry, lines);
   } catch (err) {
     console.warn('⚠️ فشل قيد الدفعة المقدمة:', err.message);
   }
@@ -580,66 +643,116 @@ async function approveSale(saleId) {
     if (sale.status === 'approved') throw new Error('الفاتورة معتمدة مسبقاً');
     if (sale.status === 'rejected') throw new Error('الفاتورة مرفوضة - يجب تعديلها أولاً');
 
-    const { data: items, error: iErr } = await sb.from('sale_items').select('*').eq('sale_id', saleId);
-    if (iErr) throw iErr;
+    // ✅ انتقال ذري (CAS): يمنع اعتماد الفاتورة مرتين عند تزامن طلبين،
+    //    وكان قراءة-ثم-تعديلاً فقط في النسخة القديمة (تضاعف خصم المخزون).
+    const { data: claimed, error: clErr } = await sb.from('sales')
+      .update({ status: 'approved', warehouse_approved: true })
+      .eq('id', saleId)
+      .in('status', ['pending', 'awaiting_warehouse'])
+      .select('id');
+    if (clErr) throw clErr;
+    if (!claimed || claimed.length === 0) throw new Error('الفاتورة معتمدة مسبقاً');
 
-    for (const item of items) {
-      if (item.source_type !== 'warehouse') continue;
+    const undo = [];   // سجل عمليات التراجع عند فشل أي خطوة
+    let items = [];
 
-      const { data: product, error: pErr } = await sb.from('products').select('*').eq('id', item.product_id).single();
-      if (pErr) throw pErr;
-      if (product.quantity < item.quantity) {
-        throw new Error(`الكمية المتاحة من "${product.name}" غير كافية (المتاح: ${product.quantity})`);
+    try {
+      const { data: saleItems, error: iErr } = await sb.from('sale_items').select('*').eq('sale_id', saleId);
+      if (iErr) throw iErr;
+      items = saleItems;
+
+      for (const item of items) {
+        if (item.source_type !== 'warehouse') continue;
+
+        const { data: product, error: pErr } = await sb.from('products').select('*').eq('id', item.product_id).single();
+        if (pErr) throw pErr;
+        if (!product) throw new Error('منتج الفاتورة غير موجود');
+        if (Number(product.quantity) < Number(item.quantity)) {
+          throw new Error(`الكمية المتاحة من "${product.name}" غير كافية (المتاح: ${product.quantity})`);
+        }
+
+        // ✅ تحديث بشروط (CAS) حتى لا يُخصم مرتين عند تزامن عمليتين
+        const { data: upd, error: uErr } = await sb.from('products')
+          .update({ quantity: Number(product.quantity) - Number(item.quantity) })
+          .eq('id', product.id)
+          .eq('quantity', product.quantity)
+          .select('id');
+        if (uErr) throw uErr;
+        if (!upd || upd.length === 0) {
+          throw new Error(`تعذّر خصم كمية "${product.name}" (تغيّرت الكمية أثناء العملية) — أعد المحاولة`);
+        }
+        undo.push(async () => {
+          await sb.from('products').update({ quantity: Number(product.quantity) }).eq('id', product.id);
+        });
+
+        const { data: mov, error: mErr } = await sb.from('warehouse_transactions').insert({
+          product_id: product.id,
+          type: 'out',
+          quantity: item.quantity,
+          reason: `فاتورة مبيعات ${sale.invoice_number}`,
+          ref_id: sale.id,
+          user_id: user.id
+        }).select('id');
+        if (mErr) throw new Error('تعذّر تسجيل حركة المخزن: ' + mErr.message);
+        undo.push(async () => { await sb.from('warehouse_transactions').delete().eq('id', mov.id); });
       }
 
-      await sb.from('products').update({ quantity: product.quantity - item.quantity }).eq('id', product.id);
-
-      await sb.from('warehouse_transactions').insert({
-        product_id: product.id,
-        type: 'out',
-        quantity: item.quantity,
-        reason: `فاتورة مبيعات ${sale.invoice_number}`,
-        ref_id: sale.id,
-        user_id: user.id
-      });
-    }
-
-    if (sale.paid_cash > 0) {
-      await sb.from('cash_transactions').insert({
-        type: 'in',
-        amount: sale.paid_cash,
-        description: `مبيعات كاش - فاتورة ${sale.invoice_number}`,
-        ref_id: sale.id,
-        user_id: user.id
-      });
-    }
-    if (sale.paid_bank > 0) {
-      await sb.from('bank_transactions').insert({
-        type: 'in',
-        amount: sale.paid_bank,
-        description: `مبيعات بنك - فاتورة ${sale.invoice_number}`,
-        ref_id: sale.id,
-        user_id: user.id
-      });
-    }
-
-    // ✅ دين العميل (مع مراعاة الدفعات المقدمة)
-    if (sale.remaining > 0 && sale.customer_id) {
-      const { data: customer } = await sb.from('customers').select('*').eq('id', sale.customer_id).single();
-      if (customer) {
-        const currentBalance = Number(customer.balance || 0);
-        // إذا كان الرصيد سالباً (دفعة مقدمة) → يُستخدم لتخفيض المتبقي
-        let newBalance = currentBalance + Number(sale.remaining);
-        await sb.from('customers').update({ balance: newBalance }).eq('id', customer.id);
+      if (sale.paid_cash > 0) {
+        const { data: tx, error: tErr } = await sb.from('cash_transactions').insert({
+          type: 'in',
+          amount: sale.paid_cash,
+          description: `مبيعات كاش - فاتورة ${sale.invoice_number}`,
+          ref_id: sale.id,
+          user_id: user.id
+        }).select('id');
+        if (tErr) throw new Error('تعذّر تسجيل حركة الصندوق: ' + tErr.message);
+        undo.push(async () => { await sb.from('cash_transactions').delete().eq('id', tx.id); });
       }
+      if (sale.paid_bank > 0) {
+        const { data: tx, error: tErr } = await sb.from('bank_transactions').insert({
+          type: 'in',
+          amount: sale.paid_bank,
+          description: `مبيعات بنك - فاتورة ${sale.invoice_number}`,
+          ref_id: sale.id,
+          user_id: user.id
+        }).select('id');
+        if (tErr) throw new Error('تعذّر تسجيل حركة البنك: ' + tErr.message);
+        undo.push(async () => { await sb.from('bank_transactions').delete().eq('id', tx.id); });
+      }
+
+      // ✅ دين العميل (مع مراعاة الدفعات المقدمة)
+      if (sale.remaining > 0 && sale.customer_id) {
+        const { data: customer, error: cuErr } = await sb.from('customers').select('*').eq('id', sale.customer_id).single();
+        if (cuErr) throw cuErr;
+        if (customer) {
+          const prevBalance = Number(customer.balance || 0);
+          const { data: updC, error: bErr } = await sb.from('customers')
+            .update({ balance: prevBalance + Number(sale.remaining) })
+            .eq('id', customer.id)
+            .eq('balance', customer.balance)
+            .select('id');
+          if (bErr) throw bErr;
+          if (!updC || updC.length === 0) {
+            throw new Error('تعذّر تحديث رصيد العميل (تغيّر الرصيد أثناء العملية)');
+          }
+          undo.push(async () => {
+            await sb.from('customers').update({ balance: prevBalance }).eq('id', customer.id);
+          });
+        }
+      }
+    } catch (sideErr) {
+      // تراجع كامل: إعادة الكمية والحركات والأرصدة ثم إعادة الحالة السابقة
+      for (let i = undo.length - 1; i >= 0; i--) {
+        try { await undo[i](); } catch (undoErr) { console.error('⚠️ فشل التراجع:', undoErr.message); }
+      }
+      await sb.from('sales')
+        .update({ status: sale.status, warehouse_approved: sale.warehouse_approved })
+        .eq('id', saleId);
+      console.error('❌ approveSale (تم التراجع):', sideErr.message);
+      return { error: sideErr.message };
     }
 
-    await autoJournalForSale(sale, items);
-
-    await sb.from('sales').update({
-      status: 'approved',
-      warehouse_approved: true
-    }).eq('id', saleId);
+    await autoJournalForSale(sale, items || []);
 
     await logAudit('approve', 'sales', sale.id, { invoice_number: sale.invoice_number });
 
@@ -675,16 +788,23 @@ async function createCustomerPayment(customerId, amount, paymentType, options = 
     const { user } = await authGetUser();
     if (!user) throw new Error('يجب تسجيل الدخول');
 
+    // ✅ تحقّق من المبلغ وطريقة الاستلام قبل أي عملية مالية
+    const amt = Number(amount);
+    if (!Number.isFinite(amt) || amt <= 0) throw new Error('المبلغ غير صحيح');
+    if (!VALID_PAYMENT_TYPES.includes(paymentType)) throw new Error('طريقة الاستلام غير مدعومة');
+    if (paymentType === 'extra_box' && !options.extra_box_id) throw new Error('الرجاء اختيار الخزنة');
+
     const { data: customer, error: cErr } = await sb.from('customers').select('*').eq('id', customerId).single();
     if (cErr) throw cErr;
 
-    if (amount > customer.balance) {
-      throw new Error(`المبلغ أكبر من الدين (${customer.balance})`);
+    const owed = Number(customer.balance || 0);
+    if (amt > owed) {
+      throw new Error(`المبلغ (${amt}) أكبر من الدين (${owed})`);
     }
 
     const { data: payment, error: pErr } = await sb.from('customer_payments').insert({
       customer_id: customerId,
-      amount: Number(amount),
+      amount: amt,
       payment_type: paymentType,
       extra_box_id: options.extra_box_id || null,
       bank_ref: options.bank_ref || null,
@@ -693,39 +813,51 @@ async function createCustomerPayment(customerId, amount, paymentType, options = 
     }).select().single();
     if (pErr) throw pErr;
 
-    if (paymentType === 'cash') {
-      await sb.from('cash_transactions').insert({
-        type: 'in',
-        amount: Number(amount),
-        description: `سداد من العميل: ${customer.name}`,
-        ref_id: payment.id,
-        user_id: user.id
-      });
-    } else if (paymentType === 'bank') {
-      await sb.from('bank_transactions').insert({
-        type: 'in',
-        amount: Number(amount),
-        description: `سداد من العميل: ${customer.name}`,
-        bank_ref: options.bank_ref || null,
-        ref_id: payment.id,
-        user_id: user.id
-      });
-    } else if (paymentType === 'extra_box' && options.extra_box_id) {
-      await sb.from('extra_cashbox_transactions').insert({
-        cashbox_id: options.extra_box_id,
-        type: 'in',
-        amount: Number(amount),
-        description: `سداد من العميل: ${customer.name}`,
-        ref_id: payment.id,
-        user_id: user.id
-      });
-      const { data: box } = await sb.from('extra_cashboxes').select('*').eq('id', options.extra_box_id).single();
-      if (box) {
-        await sb.from('extra_cashboxes').update({ balance: Number(box.balance || 0) + Number(amount) }).eq('id', box.id);
-      }
+    // 1️⃣ رصيد العميل (الحقيقة المحاسبية الأساسية) — مع التحقق
+    const { data: balRows, error: balErr } = await sb.from('customers')
+      .update({ balance: owed - amt })
+      .eq('id', customerId)
+      .select('id');
+    if (balErr || !balRows || balRows.length === 0) {
+      await sb.from('customer_payments').delete().eq('id', payment.id);
+      throw new Error('تعذّر تحديث رصيد العميل: ' + (balErr ? balErr.message : 'لا يوجد صف متأثر'));
     }
 
-    await sb.from('customers').update({ balance: Number(customer.balance) - Number(amount) }).eq('id', customerId);
+    // 2️⃣ حركة الخزنة — مع تراجع كامل إذا فشلت
+    try {
+      if (paymentType === 'cash') {
+        await mustInsert('cash_transactions', {
+          type: 'in', amount: amt,
+          description: `سداد من العميل: ${customer.name}`,
+          ref_id: payment.id, user_id: user.id
+        });
+      } else if (paymentType === 'bank') {
+        await mustInsert('bank_transactions', {
+          type: 'in', amount: amt,
+          description: `سداد من العميل: ${customer.name}`,
+          bank_ref: options.bank_ref || null,
+          ref_id: payment.id, user_id: user.id
+        });
+      } else if (paymentType === 'extra_box') {
+        await mustInsert('extra_cashbox_transactions', {
+          cashbox_id: options.extra_box_id, type: 'in', amount: amt,
+          description: `سداد من العميل: ${customer.name}`,
+          ref_id: payment.id, user_id: user.id
+        });
+        const { data: box } = await sb.from('extra_cashboxes').select('*').eq('id', options.extra_box_id).single();
+        if (box) {
+          const { error: boxErr } = await sb.from('extra_cashboxes')
+            .update({ balance: Number(box.balance || 0) + amt })
+            .eq('id', box.id);
+          if (boxErr) throw boxErr;
+        }
+      }
+    } catch (treasuryErr) {
+      await sb.from('customers').update({ balance: owed }).eq('id', customerId);
+      await sb.from('customer_payments').delete().eq('id', payment.id);
+      throw new Error('تعذّر تسجيل حركة الخزنة — تم التراجع الكامل عن العملية: ' + (treasuryErr.message || treasuryErr));
+    }
+
     await autoJournalForCustomerPayment(payment, customer);
     await logAudit('create', 'customer_payments', payment.id, { customer_id: customerId, amount });
 
@@ -747,6 +879,8 @@ async function createCustomerAdvancePayment(customerId, amount, paymentType, opt
 
     const payAmount = Number(amount);
     if (!payAmount || payAmount <= 0) throw new Error('المبلغ غير صحيح');
+    if (!VALID_PAYMENT_TYPES.includes(paymentType)) throw new Error('طريقة الاستلام غير مدعومة');
+    if (paymentType === 'extra_box' && !options.extra_box_id) throw new Error('الرجاء اختيار الخزنة');
 
     const { data: payment, error: pErr } = await sb.from('customer_payments').insert({
       customer_id: customerId,
@@ -811,6 +945,316 @@ async function createCustomerAdvancePayment(customerId, amount, paymentType, opt
 }
 
 /* ═══════════════════════════════════════════════════════════════
+   ✅ سحب من رصيد العميل (Customer Withdrawal)
+   ═══════════════════════════════════════════════════════════════ */
+
+async function createCustomerWithdrawal(customerId, amount, paymentType, options = {}) {
+  try {
+    const { user } = await authGetUser();
+    if (!user) throw new Error('يجب تسجيل الدخول');
+
+    const { data: customer, error: cErr } = await sb.from('customers')
+      .select('*').eq('id', customerId).single();
+    if (cErr) throw cErr;
+
+    const withdrawAmount = Number(amount);
+    if (!withdrawAmount || withdrawAmount <= 0) {
+      throw new Error('المبلغ غير صحيح');
+    }
+
+        // ✅ التحقق: الرصيد المتاح (يقبل الموجب والسالب)
+    const available = Math.abs(Number(customer.balance));
+if (withdrawAmount > available) {
+  throw new Error(`الرصيد المتاح ${available} فقط، لا يمكن سحب ${withdrawAmount}`);
+}
+
+    // 1️⃣ تسجيل السحب في customer_payments مع direction = 'out'
+    const { data: payment, error: pErr } = await sb.from('customer_payments').insert({
+      customer_id: customerId,
+      amount: withdrawAmount,
+      payment_type: paymentType,
+      payment_direction: 'out',
+      extra_box_id: options.extra_box_id || null,
+      bank_ref: options.bank_ref || null,
+      description: options.reason || 'سحب من الرصيد',
+      user_id: user.id
+    }).select().single();
+    if (pErr) throw pErr;
+
+    // 2️⃣ خصم من الخزنة (كاش/بنك/خزنة أخرى)
+    if (paymentType === 'cash') {
+      await sb.from('cash_transactions').insert({
+        type: 'out',
+        amount: withdrawAmount,
+        description: `سحب من رصيد العميل: ${customer.name} - ${options.reason || ''}`,
+        ref_id: payment.id,
+        user_id: user.id
+      });
+    } else if (paymentType === 'bank') {
+      await sb.from('bank_transactions').insert({
+        type: 'out',
+        amount: withdrawAmount,
+        description: `سحب من رصيد العميل: ${customer.name} - ${options.reason || ''}`,
+        bank_ref: options.bank_ref || null,
+        ref_id: payment.id,
+        user_id: user.id
+      });
+    } else if (paymentType === 'extra_box' && options.extra_box_id) {
+      await sb.from('extra_cashbox_transactions').insert({
+        cashbox_id: options.extra_box_id,
+        type: 'out',
+        amount: withdrawAmount,
+        description: `سحب من رصيد العميل: ${customer.name}`,
+        ref_id: payment.id,
+        user_id: user.id
+      });
+      const { data: box } = await sb.from('extra_cashboxes').select('*').eq('id', options.extra_box_id).single();
+      if (box) {
+        await sb.from('extra_cashboxes').update({
+          balance: Number(box.balance || 0) - withdrawAmount
+        }).eq('id', box.id);
+      }
+    }
+
+        // 3️⃣ تعديل رصيد العميل (يتعامل مع الموجب والسالب)
+    const currentBal = Number(customer.balance || 0);
+    const newBal = currentBal < 0 
+      ? currentBal + withdrawAmount  // سالب: نرجعله فلوسه
+      : currentBal - withdrawAmount; // موجب: نستلم منه
+    await sb.from('customers').update({
+      balance: newBal
+    }).eq('id', customerId);
+
+    // 4️⃣ قيد محاسبي
+    await autoJournalForCustomerWithdrawal(payment, customer, options.reason);
+
+    await logAudit('create', 'customer_payments', payment.id, {
+      customer_id: customerId,
+      amount: withdrawAmount,
+      type: 'withdrawal',
+      reason: options.reason
+    });
+
+    return { data: payment, error: null };
+  } catch (err) {
+    console.error('❌ createCustomerWithdrawal:', err.message);
+    return { data: null, error: err.message };
+  }
+}
+
+/* ✅ قيد محاسبي للسحب */
+async function autoJournalForCustomerWithdrawal(payment, customer, reason) {
+  try {
+    const { user } = await authGetUser();
+    if (!user) return;
+
+    const entryNumber = await generateEntryNumber();
+    const { data: entry } = await sb.from('journal_entries').insert({
+      entry_number: entryNumber,
+      date: localISO(),
+      description: `سحب من رصيد العميل ${customer.name} - ${reason || ''}`,
+      ref_type: 'customer_withdrawal',
+      ref_id: payment.id,
+      created_by: user.id
+    }).select().single();
+
+    const { data: accounts } = await sb.from('accounts').select('*');
+    const findAcc = (code) => accounts?.find(a => a.code === code);
+
+    const cashAcc = findAcc('1100');
+    const bankAcc = findAcc('1200');
+    const extraAcc = findAcc('1500');
+    const custAcc = findAcc('1300');
+
+    const lines = [];
+
+    // مدين: العميل (رصيده يقل)
+    if (custAcc) {
+      lines.push({
+        entry_id: entry.id, account_id: custAcc.id,
+        debit: payment.amount, credit: 0,
+        description: 'سحب من رصيد العميل'
+      });
+    }
+
+    // دائن: الخزنة (نقصت)
+    if (payment.payment_type === 'cash' && cashAcc) {
+      lines.push({ entry_id: entry.id, account_id: cashAcc.id, debit: 0, credit: payment.amount, description: 'صرف كاش' });
+    } else if (payment.payment_type === 'bank' && bankAcc) {
+      lines.push({ entry_id: entry.id, account_id: bankAcc.id, debit: 0, credit: payment.amount, description: 'صرف بنك' });
+    } else if (payment.payment_type === 'extra_box' && extraAcc) {
+      lines.push({ entry_id: entry.id, account_id: extraAcc.id, debit: 0, credit: payment.amount, description: 'صرف خزنة أخرى' });
+    }
+
+    await commitJournalLines(entry, lines);
+  } catch (err) {
+    console.warn('⚠️ فشل قيد السحب:', err.message);
+  }
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   ✅ خدمات العملاء (Customer Services)
+   ═══════════════════════════════════════════════════════════════ */
+
+async function createCustomerService(customerId, amount, serviceType, options = {}) {
+  try {
+    const { user } = await authGetUser();
+    if (!user) throw new Error('يجب تسجيل الدخول');
+
+    const { data: customer, error: cErr } = await sb.from('customers')
+      .select('*').eq('id', customerId).single();
+    if (cErr) throw cErr;
+
+    const serviceAmount = Number(amount);
+    if (!Number.isFinite(serviceAmount) || serviceAmount <= 0) {
+      throw new Error('المبلغ غير صحيح');
+    }
+    if (!VALID_PAYMENT_TYPES.includes(cashboxType)) throw new Error('نوع الخزنة غير مدعوم');
+    if (cashboxType === 'extra_box' && !cashboxId) throw new Error('الرجاء اختيار الخزنة');
+
+    if (!serviceType || !serviceType.trim()) {
+      throw new Error('نوع الخدمة مطلوب');
+    }
+
+    const cashboxType = options.cashbox_type || 'cash';
+    const serviceDate = options.service_date || localISO();
+    const notes = options.notes || '';
+    const cashboxId = options.cashbox_id || null;
+
+    // ✅ حفظ الرصيد قبل التعديل
+    const balanceBefore = Number(customer.balance || 0);
+    
+    // ✅ حساب الرصيد بعد التعديل
+    // القاعدة: في الحالتين، balance + amount
+    // (موجب: دينه يزيد) - (سالب: رصيده لنا يقل)
+    const balanceAfter = balanceBefore + serviceAmount;
+
+    // 1️⃣ تسجيل الخدمة في customer_services
+    const { data: service, error: sErr } = await sb.from('customer_services').insert({
+      customer_id: customerId,
+      amount: serviceAmount,
+      service_type: serviceType.trim(),
+      cashbox_type: cashboxType,
+      cashbox_id: cashboxId,
+      service_date: serviceDate,
+      notes: notes,
+      balance_before: balanceBefore,
+      balance_after: balanceAfter,
+      user_id: user.id
+    }).select().single();
+    if (sErr) throw sErr;
+
+    // 2️⃣ خصم من الخزنة
+    if (cashboxType === 'cash') {
+      await sb.from('cash_transactions').insert({
+        type: 'out',
+        amount: serviceAmount,
+        description: `خدمة: ${serviceType.trim()} - ${customer.name}`,
+        ref_id: service.id,
+        user_id: user.id
+      });
+    } else if (cashboxType === 'bank') {
+      await sb.from('bank_transactions').insert({
+        type: 'out',
+        amount: serviceAmount,
+        description: `خدمة: ${serviceType.trim()} - ${customer.name}`,
+        ref_id: service.id,
+        user_id: user.id
+      });
+    } else if (cashboxType === 'extra_box' && cashboxId) {
+      await sb.from('extra_cashbox_transactions').insert({
+        cashbox_id: cashboxId,
+        type: 'out',
+        amount: serviceAmount,
+        description: `خدمة: ${serviceType.trim()} - ${customer.name}`,
+        ref_id: service.id,
+        user_id: user.id
+      });
+      const { data: box } = await sb.from('extra_cashboxes').select('*').eq('id', cashboxId).single();
+      if (box) {
+        await sb.from('extra_cashboxes').update({
+          balance: Number(box.balance || 0) - serviceAmount
+        }).eq('id', cashboxId);
+      }
+    }
+
+    // 3️⃣ تحديث رصيد العميل
+    await sb.from('customers').update({
+      balance: balanceAfter
+    }).eq('id', customerId);
+
+    // 4️⃣ القيد المحاسبي
+    await autoJournalForService(service, customer, serviceType);
+
+    // 5️⃣ تسجيل في Audit Log
+    await logAudit('create', 'customer_services', service.id, {
+      customer_id: customerId,
+      amount: serviceAmount,
+      service_type: serviceType,
+      cashbox_type: cashboxType
+    });
+
+    return { data: service, error: null };
+  } catch (err) {
+    console.error('❌ createCustomerService:', err.message);
+    return { data: null, error: err.message };
+  }
+}
+
+/* ✅ القيد المحاسبي للخدمة */
+async function autoJournalForService(service, customer, serviceType) {
+  try {
+    const { user } = await authGetUser();
+    if (!user) return;
+
+    const entryNumber = await generateEntryNumber();
+    const { data: entry } = await sb.from('journal_entries').insert({
+      entry_number: entryNumber,
+      date: service.service_date || localISO(),
+      description: `خدمة ${serviceType} - ${customer.name}`,
+      ref_type: 'customer_service',
+      ref_id: service.id,
+      created_by: user.id
+    }).select().single();
+
+    const { data: accounts } = await sb.from('accounts').select('*');
+    const findAcc = (code) => accounts?.find(a => a.code === code);
+
+    const cashAcc = findAcc('1100');
+    const bankAcc = findAcc('1200');
+    const extraAcc = findAcc('1500');
+    const custAcc = findAcc('1300');
+    const revenueAcc = findAcc('4100');
+
+    const lines = [];
+
+    // مدين: العميل (رصيده يزيد - سلباً أو إيجاباً)
+    if (custAcc) {
+      lines.push({
+        entry_id: entry.id,
+        account_id: custAcc.id,
+        debit: service.amount,
+        credit: 0,
+        description: `خدمة ${serviceType}`
+      });
+    }
+
+    // دائن: الخزنة
+    if (service.cashbox_type === 'cash' && cashAcc) {
+      lines.push({ entry_id: entry.id, account_id: cashAcc.id, debit: 0, credit: service.amount, description: 'صرف كاش' });
+    } else if (service.cashbox_type === 'bank' && bankAcc) {
+      lines.push({ entry_id: entry.id, account_id: bankAcc.id, debit: 0, credit: service.amount, description: 'صرف بنك' });
+    } else if (service.cashbox_type === 'extra_box' && extraAcc) {
+      lines.push({ entry_id: entry.id, account_id: extraAcc.id, debit: 0, credit: service.amount, description: 'صرف خزنة أخرى' });
+    }
+
+    await commitJournalLines(entry, lines);
+  } catch (err) {
+    console.warn('⚠️ فشل قيد الخدمة:', err.message);
+  }
+}
+
+/* ═══════════════════════════════════════════════════════════════
    11. سداد الموردين
    ═══════════════════════════════════════════════════════════════ */
 
@@ -822,13 +1266,19 @@ async function createSupplierPayment(supplierId, amount, paymentType, options = 
     const { data: supplier, error: sErr } = await sb.from('suppliers').select('*').eq('id', supplierId).single();
     if (sErr) throw sErr;
 
-    if (amount > supplier.balance) {
-      throw new Error(`المبلغ أكبر من المستحق (${supplier.balance})`);
+    // ✅ تحقّق من المبلغ وطريقة السداد
+    const supAmt = Number(amount);
+    if (!Number.isFinite(supAmt) || supAmt <= 0) throw new Error('المبلغ غير صحيح');
+    if (!VALID_PAYMENT_TYPES.includes(paymentType)) throw new Error('طريقة السداد غير مدعومة');
+    if (paymentType === 'extra_box' && !options.extra_box_id) throw new Error('الرجاء اختيار الخزنة');
+
+    if (supAmt > Number(supplier.balance || 0)) {
+      throw new Error(`المبلغ (${supAmt}) أكبر من المستحق (${Number(supplier.balance || 0)})`);
     }
 
     const { data: payment, error: pErr } = await sb.from('supplier_payments').insert({
       supplier_id: supplierId,
-      amount: Number(amount),
+      amount: supAmt,
       payment_type: paymentType,
       extra_box_id: options.extra_box_id || null,
       bank_ref: options.bank_ref || null,
@@ -889,30 +1339,51 @@ async function stockOut(productId, quantity, reason, options = {}) {
 
     const { data: product, error: pErr } = await sb.from('products').select('*').eq('id', productId).single();
     if (pErr) throw pErr;
-    if (product.quantity < quantity) {
+
+    const qty = Number(quantity);
+    if (!Number.isFinite(qty) || qty <= 0) throw new Error('الكمية يجب أن تكون أكبر من 0');
+    if (Number(product.quantity) < qty) {
       throw new Error(`الكمية المتاحة ${product.quantity} فقط`);
     }
 
-    await sb.from('products').update({ quantity: Number(product.quantity) - Number(quantity) }).eq('id', productId);
-
-    await sb.from('warehouse_transactions').insert({
+    // ✅ نسجّل السجلين أولاً ثم نعدّل الكمية أخيراً (مع تراجع عند الفشل)
+    // ✅ B-08: لا تُستبدل فئة الصرف بالملاحظات — الفئة أولاً ثم الملاحظة (كانت الفئة تختفي)
+    const movReason = options.notes ? `${reason} - ${options.notes}` : reason;
+    const { data: movRow, error: movErr } = await sb.from('warehouse_transactions').insert({
       product_id: productId,
       type: 'out',
-      quantity: Number(quantity),
-      reason: options.notes || reason,
+      quantity: qty,
+      reason: movReason,
       user_id: user.id
-    });
+    }).select().single();
+    if (movErr) throw new Error('تعذّر تسجيل حركة المخزن: ' + movErr.message);
 
-    await sb.from('stock_out_log').insert({
+    const { data: logRow, error: logErr } = await sb.from('stock_out_log').insert({
       product_id: productId,
-      quantity: Number(quantity),
+      quantity: qty,
       reason,
       destination_type: options.destination_type || 'other',
       destination_id: options.destination_id || null,
       destination_name: options.destination_name || '',
       notes: options.notes || '',
       user_id: user.id
-    });
+    }).select().single();
+    if (logErr) {
+      await sb.from('warehouse_transactions').delete().eq('id', movRow.id);
+      throw new Error('تعذّر تسجيل سجل الإخراج: ' + logErr.message);
+    }
+
+    const { data: upd, error: updErr } = await sb.from('products')
+      .update({ quantity: Number(product.quantity) - qty })
+      .eq('id', productId)
+      .eq('quantity', product.quantity)
+      .select('id');
+    if (updErr || !upd || upd.length === 0) {
+      await sb.from('stock_out_log').delete().eq('id', logRow.id);
+      await sb.from('warehouse_transactions').delete().eq('id', movRow.id);
+      throw new Error(updErr ? 'تعذّر تحديث كمية المنتج: ' + updErr.message
+        : 'تعذّر تحديث كمية المنتج (تغيّرت الكمية أثناء العملية)');
+    }
 
     await logAudit('create', 'stock_out_log', null, { product_id: productId, quantity, reason });
     return { error: null };
@@ -934,6 +1405,11 @@ async function createReturn(saleId, items, refundType, reason) {
     if (!sale) throw new Error('الفاتورة غير موجودة');
 
     const total = items.reduce((s, it) => s + it.quantity * it.price, 0);
+    if (!Array.isArray(items) || items.length === 0) throw new Error('يجب اختيار منتج واحد على الأقل');
+    if (!Number.isFinite(total) || total < 0) throw new Error('قيمة المرتجع غير صحيحة');
+    if (items.some(it => !Number.isFinite(Number(it.quantity)) || Number(it.quantity) <= 0)) {
+      throw new Error('كمية المرتجع يجب أن تكون أكبر من 0');
+    }
     const returnNumber = await generateReturnNumber();
 
     const { data: ret, error: rErr } = await sb.from('returns').insert({
@@ -956,7 +1432,12 @@ async function createReturn(saleId, items, refundType, reason) {
       price: it.price,
       subtotal: it.quantity * it.price
     }));
-    await sb.from('return_items').insert(itemsPayload);
+    const { error: itErr } = await sb.from('return_items').insert(itemsPayload);
+    if (itErr) {
+      // تراجع حتى لا يبقى مرتجع بلا بنود
+      await sb.from('returns').delete().eq('id', ret.id);
+      throw new Error('تعذّر حفظ بنود المرتجع: ' + itErr.message);
+    }
 
     await logAudit('create', 'returns', ret.id, { return_number: returnNumber, total });
     return { data: ret, error: null };
@@ -974,13 +1455,43 @@ async function approveReturn(returnId) {
     if (rErr) throw rErr;
     if (ret.status === 'approved') throw new Error('المرتجع معتمد مسبقاً');
 
-    const { data: items } = await sb.from('return_items').select('*').eq('return_id', returnId);
+    // ✅ انتقال ذري pending → approved: يمنع اعتماد المرتجع مرتين عند تزامن طلبين
+    const { data: claimed, error: cErr } = await sb
+      .from('returns')
+      .update({ status: 'approved' })
+      .eq('id', returnId)
+      .eq('status', 'pending')
+      .select('id');
+    if (cErr) throw cErr;
+    if (!claimed || claimed.length === 0) throw new Error('المرتجع معتمد مسبقاً');
 
-    for (const item of items) {
-      const { data: product } = await sb.from('products').select('*').eq('id', item.product_id).single();
-      if (product) {
-        await sb.from('products').update({ quantity: Number(product.quantity) + Number(item.quantity) }).eq('id', product.id);
-        await sb.from('warehouse_transactions').insert({
+    // إذا فشلت أي خطوة يتم التراجع عن الحالة حتى لا يتكرر أثر مالي/مخزني
+    try {
+      const { data: items, error: iErr } = await sb.from('return_items').select('*').eq('return_id', returnId);
+      if (iErr) throw iErr;
+
+      for (const item of items || []) {
+        const { data: product, error: prErr } = await sb.from('products').select('*').eq('id', item.product_id).single();
+        if (prErr) throw prErr;
+        if (!product) throw new Error('منتج المرتجع غير موجود');
+
+        // ✅ استُردت هذه البنود مسبقاً؟ (حماية من التكرار)
+        const { data: done } = await sb.from('warehouse_transactions')
+          .select('id').eq('ref_id', ret.id).eq('product_id', product.id).eq('type', 'in');
+        if (done && done.length > 0) continue;
+
+        const newQty = Number(product.quantity) + Number(item.quantity);
+        const { data: upd, error: qErr } = await sb.from('products')
+          .update({ quantity: newQty })
+          .eq('id', product.id)
+          .eq('quantity', product.quantity)
+          .select('id');
+        if (qErr) throw qErr;
+        if (!upd || upd.length === 0) {
+          throw new Error(`تعذّر تحديث كمية المنتج ${product.name} (تغيّرت الكمية أثناء العملية)`);
+        }
+
+        const { error: wErr } = await sb.from('warehouse_transactions').insert({
           product_id: product.id,
           type: 'in',
           quantity: item.quantity,
@@ -988,36 +1499,53 @@ async function approveReturn(returnId) {
           ref_id: ret.id,
           user_id: user.id
         });
+        if (wErr) throw new Error('تعذّر تسجيل حركة المخزن: ' + wErr.message);
       }
+
+      if (ret.refund_type === 'cash') {
+        const { data: done } = await sb.from('cash_transactions').select('id').eq('ref_id', ret.id).eq('type', 'out');
+        if (!done || done.length === 0) {
+          await mustInsert('cash_transactions', {
+            type: 'out', amount: ret.total,
+            description: `مرتجع كاش - ${ret.return_number}`,
+            ref_id: ret.id, user_id: user.id
+          });
+        }
+      } else if (ret.refund_type === 'bank') {
+        const { data: done } = await sb.from('bank_transactions').select('id').eq('ref_id', ret.id).eq('type', 'out');
+        if (!done || done.length === 0) {
+          await mustInsert('bank_transactions', {
+            type: 'out', amount: ret.total,
+            description: `مرتجع بنك - ${ret.return_number}`,
+            ref_id: ret.id, user_id: user.id
+          });
+        }
+      } else if (ret.refund_type === 'customer_credit' && ret.customer_id) {
+        // آخر خطوة: تعديل رصيد العميل (لا تكرار لأن الحالة انتقلت للتو approved)
+        const { data: customer, error: cuErr } = await sb.from('customers').select('*').eq('id', ret.customer_id).single();
+        if (cuErr) throw cuErr;
+        if (customer) {
+          const { data: updC, error: be } = await sb.from('customers')
+            .update({ balance: Number(customer.balance || 0) - Number(ret.total) })
+            .eq('id', ret.customer_id)
+            .eq('balance', customer.balance)
+            .select('id');
+          if (be) throw be;
+          if (!updC || updC.length === 0) throw new Error('تعذّر تحديث رصيد العميل (تغيّر الرصيد أثناء العملية)');
+        }
+      }
+    } catch (sideErr) {
+      // تراجع: إعادة الحالة pending حتى لا يبقى المرتجع "معتمداً" بلا أثره
+      try {
+        await sb.from('returns').update({ status: 'pending' }).eq('id', returnId).eq('status', 'approved');
+      } catch {}
+      throw sideErr;
     }
 
-    if (ret.refund_type === 'cash') {
-      await sb.from('cash_transactions').insert({
-        type: 'out',
-        amount: ret.total,
-        description: `مرتجع كاش - ${ret.return_number}`,
-        ref_id: ret.id,
-        user_id: user.id
-      });
-    } else if (ret.refund_type === 'bank') {
-      await sb.from('bank_transactions').insert({
-        type: 'out',
-        amount: ret.total,
-        description: `مرتجع بنك - ${ret.return_number}`,
-        ref_id: ret.id,
-        user_id: user.id
-      });
-    } else if (ret.refund_type === 'customer_credit' && ret.customer_id) {
-      const { data: customer } = await sb.from('customers').select('*').eq('id', ret.customer_id).single();
-      if (customer) {
-        await sb.from('customers').update({ balance: Number(customer.balance || 0) - Number(ret.total) }).eq('id', customer.id);
-      }
-    }
-
-    await sb.from('returns').update({ status: 'approved' }).eq('id', returnId);
     await logAudit('approve', 'returns', ret.id, { return_number: ret.return_number });
     return { error: null };
   } catch (err) {
+    console.error('❌ approveReturn:', err.message);
     return { error: err.message };
   }
 }
@@ -1164,7 +1692,7 @@ async function createManualJournal(entryData, lines) {
     const entryNumber = await generateEntryNumber();
     const { data: entry, error: eErr } = await sb.from('journal_entries').insert({
       entry_number: entryNumber,
-      date: entryData.date || new Date().toISOString().split('T')[0],
+      date: entryData.date || localISO(),
       description: entryData.description,
       ref_type: 'manual',
       created_by: user.id
@@ -1179,7 +1707,7 @@ async function createManualJournal(entryData, lines) {
       description: l.description || ''
     }));
 
-    await sb.from('journal_lines').insert(linesPayload);
+    await commitJournalLines(entry, linesPayload);
     await logAudit('create', 'journal_entries', entry.id, { entry_number: entryNumber });
     return { data: entry, error: null };
   } catch (err) {
@@ -1208,7 +1736,7 @@ async function createReconciliation(type, actual, reason) {
       const entryNumber = await generateEntryNumber();
       const { data: entry } = await sb.from('journal_entries').insert({
         entry_number: entryNumber,
-        date: new Date().toISOString().split('T')[0],
+        date: localISO(),
         description: `تسوية ${type === 'cash' ? 'كاش' : 'بنك'}`,
         ref_type: 'reconciliation',
         ref_id: rec.id,
@@ -1228,7 +1756,12 @@ async function createReconciliation(type, actual, reason) {
         lines.push({ entry_id: entry.id, account_id: diffAcc.id, debit: abs, credit: 0, description: 'فرق تسوية' });
         lines.push({ entry_id: entry.id, account_id: acc.id, debit: 0, credit: abs, description: 'نقص فعلي' });
       }
-      if (lines.length > 0) await sb.from('journal_lines').insert(lines);
+      try {
+        await commitJournalLines(entry, lines);
+      } catch (jErr) {
+        // التسوية محفوظة أصلاً — نُسجّل المشكلة ولا نُفشل العملية
+        console.error('🛑 قيد التسوية:', jErr.message);
+      }
     }
 
     await logAudit('create', 'reconciliations', rec.id, { type, difference });
@@ -1257,11 +1790,35 @@ async function uploadAttachment(file, folder = 'general') {
 
 async function clearAllAttachments() {
   try {
-    const { data } = await sb.storage.from('attachments').list();
-    if (data && data.length > 0) {
-      await sb.storage.from('attachments').remove(data.map(f => f.name));
-    }
-    return { error: null };
+    const bucket = sb.storage.from('attachments');
+    let removed = 0;
+
+    // ✅ حذف متكرر: الملفات محفوظة داخل مجلدات (folder/name)، و list() بدون
+    //    صعود للمجلدات كان يترك الملفات داخلها كما هي.
+    const walk = async (prefix) => {
+      let offset = 0;
+      for (;;) {
+        const { data, error } = await bucket.list(prefix, { limit: 100, offset });
+        if (error) throw error;
+        if (!data || data.length === 0) return;
+
+        const folders = data.filter(e => !e.id).map(e => (e.name.endsWith('/') ? e.name : e.name + '/'));
+        const files = data.filter(e => e.id).map(e => prefix + e.name);
+
+        if (files.length > 0) {
+          const { error: rErr } = await bucket.remove(files);
+          if (rErr) throw rErr;
+          removed += files.length;
+        }
+
+        for (const folder of folders) await walk(folder);
+        if (data.length < 100) return;
+        offset += 100;
+      }
+    };
+
+    await walk('');
+    return { error: null, removed };
   } catch (err) {
     return { error: err.message };
   }
@@ -1360,7 +1917,7 @@ async function deleteAllData() {
 async function getDashboardKPIs() {
   try {
     const now = new Date();
-    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split('T')[0];
+    const monthStart = localISO(new Date(now.getFullYear(), now.getMonth(), 1));
 
     const { data: sales } = await sb.from('sales').select('total').eq('status', 'approved');
     const totalSales = (sales || []).reduce((s, r) => s + Number(r.total), 0);
@@ -1435,17 +1992,19 @@ async function getCustomerStatement(customerId, fromDate = null, toDate = null) 
     }));
 
     (payments || []).forEach(p => {
-      // ✅ التمييز: هل هي دفعة مقدمة أم سداد؟
+      // ✅ التمييز: هل هي دفعة مقدمة أم سداد؟ وهل هي سحب (out) أم استلام (in)؟
       const isAdvancePayment = (p.description || '').includes('دفعة مقدمة');
+      const isWithdrawal = p.payment_direction === 'out';
 
       all.push({
         type: isAdvancePayment ? 'advance_payment' : 'payment',
         date: p.created_at,
-        ref: isAdvancePayment ? 'مقدم' : 'سداد',
+        ref: isWithdrawal ? 'سحب' : (isAdvancePayment ? 'مقدم' : 'سداد'),
         amount: 0,
         paid: p.amount,
         remaining: 0,
-        isAdvance: false
+        isAdvance: false,
+        isWithdrawal
       });
     });
 
@@ -1455,6 +2014,9 @@ async function getCustomerStatement(customerId, fromDate = null, toDate = null) 
     const statement = all.map(x => {
       if (x.type === 'sale') {
         balance += Number(x.remaining);
+      } else if (x.isWithdrawal) {
+        // ✅ سحب من رصيد العميل يزيد ذمته (عكس السداد)
+        balance += Number(x.paid);
       } else {
         // سداد أو مقدم → كلاهما ينقص الرصيد
         balance -= Number(x.paid);
@@ -1491,6 +2053,107 @@ async function getProductMovements(productId, fromDate = null, toDate = null) {
 }
 
 /* ═══════════════════════════════════════════════════════════════
+   22.5 حساب تكلفة المبيعات — استعلام واحد بدل N+1
+   ═══════════════════════════════════════════════════════════════ */
+
+/**
+ * ✅ هل يوجد العمود sale_items.cost_price (التكلفة المجمّدة عند البيع)؟
+ * يُفحص مرة واحدة ويُحفظ النتيجة، حتى لا تنكسر التقارير إذا لم تُطبَّق الهجرة بعد.
+ */
+let _hasFrozenCost = null;
+async function hasFrozenCostColumn() {
+  if (_hasFrozenCost !== null) return _hasFrozenCost;
+  try {
+    const { error } = await sb.from('sale_items').select('cost_price').limit(0);
+    _hasFrozenCost = !error;
+  } catch { _hasFrozenCost = false; }
+  return _hasFrozenCost;
+}
+
+/**
+ * ✅ تكلفة المبيعات لقائمة فواتير — تُحلّ في استعلامات مُجمَّعة (chunks)
+ *    بدل الاستعلام لكل فاتورة (كان N+1: 500 فاتورة = 500 طلب).
+ *
+ * القاعدة المحاسبية المتفق عليها:
+ *   تُستخدم التكلفة المجمَّدة عند البيع (sale_items.cost_price) إن وُجدت،
+ *   وإلا تُرجع آمنًا إلى products.cost_price (السلوك القديم).
+ *
+ * @param {string[]} saleIds
+ * @param {{warehouseOnly?: boolean}} [opts] warehouseOnly=true يستبعد بنود
+ *        مصدرها خارجي (لا تُخصم من المخزون) — يُستخدم في قيد COGS.
+ * @returns {Promise<number>}
+ */
+async function getCostOfSales(saleIds, opts = {}) {
+  if (!Array.isArray(saleIds) || saleIds.length === 0) return 0;
+
+  const useFrozen = await hasFrozenCostColumn();
+  const select = useFrozen
+    ? 'quantity, sale_id, cost_price, source_type, products(cost_price)'
+    : 'quantity, sale_id, source_type, products(cost_price)';
+
+  let total = 0;
+  const CHUNK = 200;
+  for (let i = 0; i < saleIds.length; i += CHUNK) {
+    const chunk = saleIds.slice(i, i + CHUNK);
+    const { data, error } = await dbSelect('sale_items', {
+      select,
+      in: { sale_id: chunk }
+    });
+    if (error) {
+      console.error('❌ getCostOfSales:', error);
+      throw new Error(error);
+    }
+    (data || []).forEach(it => {
+      if (opts.warehouseOnly && it.source_type && it.source_type !== 'warehouse') return;
+      const frozen = useFrozen && it.cost_price !== null && it.cost_price !== undefined;
+      const unitCost = frozen ? Number(it.cost_price) : Number(it.products?.cost_price || 0);
+      total += unitCost * Number(it.quantity || 0);
+    });
+  }
+  return total;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   22.6 قراءة كاملة لجدول — تتجاوز حد max-rows في PostgREST
+   ═══════════════════════════════════════════════════════════════ */
+
+/**
+ * ✅ يقرأ الجدول كاملاً عبر صفحات، ويخبرك صراحةً إذا كانت القراءة ناقصة.
+ * الاستعلام العادي بدون limit يُقتطع عند إعداد max-rows في المشروع
+ * (عادة 1000 صف) دون أي رسالة خطأ — وهذا ما جعل النسخ الاحتياطي القديم
+ * يُبلّغ عن نجاح وهو ناقص.
+ *
+ * @returns {Promise<{data: Array, complete: boolean, error: string|null}>}
+ */
+async function selectAll(table, options = {}) {
+  const pageSize = Math.min(Number(options.page_size) || 1000, 1000);
+  const rows = [];
+  let from = 0;
+  const MAX_ROWS = 500000;
+
+  try {
+    for (;;) {
+      const { data, error } = await dbSelect(table, {
+        ...options,
+        range: { from, to: from + pageSize - 1 }
+      });
+      if (error) return { data: rows, complete: false, error };
+
+      const batch = data || [];
+      rows.push(...batch);
+
+      if (batch.length < pageSize) return { data: rows, complete: true, error: null };
+      if (rows.length >= MAX_ROWS) {
+        return { data: rows, complete: false, error: `تجاوز الحد الأقصى (${MAX_ROWS})` };
+      }
+      from += pageSize;
+    }
+  } catch (err) {
+    return { data: rows, complete: false, error: err.message || String(err) };
+  }
+}
+
+/* ═══════════════════════════════════════════════════════════════
    23. التصدير العام
    ═══════════════════════════════════════════════════════════════ */
 
@@ -1521,6 +2184,8 @@ window.SB = {
   getPendingWarehouseOrders,
   createCustomerPayment,
   createCustomerAdvancePayment,  // ✅ جديد
+    createCustomerWithdrawal,  // ✅ سحب من رصيد العميل
+      createCustomerService,
   createSupplierPayment,
   stockOut,
   createReturn,
@@ -1540,7 +2205,10 @@ window.SB = {
   deleteAllData,
   getDashboardKPIs,
   getCustomerStatement,
-  getProductMovements
+  getProductMovements,
+  getCostOfSales,
+  selectAll,
+  hasFrozenCostColumn
 };
 
 console.log('✅ supabase.js جاهز (محدّث - دفعة مقدمة)');
