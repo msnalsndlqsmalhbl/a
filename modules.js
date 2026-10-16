@@ -179,14 +179,14 @@ async function getSalesChartData() {
       d.setDate(d.getDate() - i);
       days.push({
         label: d.toLocaleDateString('ar-SD', { weekday: 'short' }),
-        date: d.toISOString().split('T')[0],
+        date: localISO(d),
         total: 0
       });
     }
     const fromDate = days[0].date;
     const { data } = await window.SB.select('sales', { eq: { status: 'approved' }, gte: { created_at: fromDate } });
     (data || []).forEach(s => {
-      const d = s.created_at.split('T')[0];
+      const d = localISO(new Date(s.created_at));
       const day = days.find(x => x.date === d);
       if (day) day.total += Number(s.total);
     });
@@ -430,15 +430,15 @@ async function openNewSaleModal() {
         <div style="margin-top:16px;padding:16px;background:rgba(59,130,246,0.08);border-radius:12px;">
           <div style="display:flex;justify-content:space-between;margin-bottom:6px;">
             <span style="color:var(--text-2);">المجموع الفرعي:</span>
-            <strong id="sale-subtotal">0 ج.س</strong>
+            <strong id="sale-subtotal">${window.App.formatCurrency(0)}</strong>
           </div>
           <div style="display:flex;justify-content:space-between;margin-bottom:6px;">
             <span style="color:var(--text-2);">الخصم:</span>
-            <strong id="sale-discount-amount" style="color:var(--warning);">0 ج.س</strong>
+            <strong id="sale-discount-amount" style="color:var(--warning);">${window.App.formatCurrency(0)}</strong>
           </div>
           <div style="display:flex;justify-content:space-between;padding-top:8px;border-top:1px solid var(--border);">
             <span style="font-weight:700;">الإجمالي النهائي:</span>
-            <strong id="sale-total" style="font-size:18px;color:var(--accent);">0 ج.س</strong>
+            <strong id="sale-total" style="font-size:18px;color:var(--accent);">${window.App.formatCurrency(0)}</strong>
           </div>
         </div>
 
@@ -599,7 +599,7 @@ function updatePaymentFields() {
         <div id="bank-operations-list" style="display:flex;flex-direction:column;gap:10px;"></div>
         <div style="margin-top:10px;padding-top:10px;border-top:1px solid var(--border);display:flex;justify-content:space-between;font-size:12.5px;">
           <span style="color:var(--text-2);">إجمالي العمليات:</span>
-          <strong id="bank-ops-total" style="color:var(--success);">0 ج.س</strong>
+          <strong id="bank-ops-total" style="color:var(--success);">${window.App.formatCurrency(0)}</strong>
         </div>
         <p id="bank-ops-remaining" style="margin-top:6px;font-size:12px;text-align:center;"></p>
       </div>`;
@@ -630,7 +630,7 @@ function updatePaymentFields() {
         <div id="bank-operations-list" style="display:flex;flex-direction:column;gap:10px;"></div>
         <div style="margin-top:10px;padding-top:10px;border-top:1px solid var(--border);display:flex;justify-content:space-between;font-size:12.5px;">
           <span style="color:var(--text-2);">إجمالي العمليات:</span>
-          <strong id="bank-ops-total" style="color:var(--success);">0 ج.س</strong>
+          <strong id="bank-ops-total" style="color:var(--success);">${window.App.formatCurrency(0)}</strong>
         </div>
         <p id="bank-ops-remaining" style="margin-top:6px;font-size:12px;text-align:center;"></p>
       </div>`;
@@ -1117,7 +1117,15 @@ async function loadCustomersList(search = '') {
     listEl.innerHTML = `
       <div class="table-wrap">
         <table class="responsive">
-          <thead><tr><th>الاسم</th><th>الهاتف</th><th>العنوان</th><th>الرصيد</th><th>إجراءات</th></tr></thead>
+          <thead>
+            <tr>
+              <th>الاسم</th>
+              <th>الهاتف</th>
+              <th>العنوان</th>
+              <th>الرصيد</th>
+              <th>إجراءات</th>
+            </tr>
+          </thead>
           <tbody>
             ${customers.map(c => `
               <tr>
@@ -1127,18 +1135,24 @@ async function loadCustomersList(search = '') {
                 <td data-label="الرصيد">${window.App.money(c.balance)}</td>
                 <td data-label="إجراءات">
                   <div style="display:flex;gap:6px;flex-wrap:wrap;">
-                    ${window.App.hasPermission('customers', 'approve') ? `
-                      ${c.balance > 0 ? `
-                        <button class="btn btn-sm btn-success" onclick="openCustomerPayment('${c.id}')" title="سداد دفعة">💰 سداد</button>
-                      ` : ''}
-                      <button class="btn btn-sm btn-accent" onclick="openCustomerAdvancePayment('${c.id}')" title="دفعة مقدمة">📥 مقدم</button>
-                    ` : ''}
-                    <button class="btn btn-sm btn-ghost" onclick="viewCustomerStatement('${c.id}')" title="كشف حساب">${window.App.icons.book}</button>
-                    ${window.App.hasPermission('customers', 'edit') ? `<button class="btn btn-sm btn-ghost" onclick="openCustomerModal('${c.id}')" title="تعديل">${window.App.icons.edit}</button>` : ''}
-                    ${window.App.hasPermission('customers', 'delete') ? `<button class="btn btn-sm btn-danger" onclick="deleteCustomer('${c.id}')" title="حذف">${window.App.icons.trash}</button>` : ''}
+
+                  ${window.App.hasPermission('customers', 'approve') ? `
+  ${c.balance > 0 ? `
+    <button class="btn btn-sm btn-success" onclick="openCustomerPayment('${c.id}')" title="سداد دفعة">💰 سداد</button>
+  ` : ''}
+  <button class="btn btn-sm btn-accent" onclick="openCustomerAdvancePayment('${c.id}')" title="دفعة مقدمة">📥 مقدم</button>
+  ${c.balance < 0 ? `
+    <button class="btn btn-sm btn-warning" onclick="openCustomerWithdrawal('${c.id}')" title="سحب من الرصيد">💸 سحب</button>
+  ` : ''}
+  <button class="btn btn-sm btn-outline" onclick="openCustomerService('${c.id}')" title="تسجيل خدمة">📋 خدمة</button>
+` : ''}
+<button class="btn btn-sm btn-ghost" onclick="viewCustomerStatement('${c.id}')" title="كشف حساب">${window.App.icons.book}</button>
+${window.App.hasPermission('customers', 'edit') ? `<button class="btn btn-sm btn-ghost" onclick="openCustomerModal('${c.id}')" title="تعديل">${window.App.icons.edit}</button>` : ''}
+${window.App.hasPermission('customers', 'delete') ? `<button class="btn btn-sm btn-danger" onclick="deleteCustomer('${c.id}')" title="حذف">${window.App.icons.trash}</button>` : ''}
                   </div>
                 </td>
-              </tr>`).join('')}
+              </tr>
+            `).join('')}
           </tbody>
         </table>
       </div>`;
@@ -1344,15 +1358,24 @@ async function openCustomerPayment(customerId) {
 
     const { data: extraBoxes } = await window.SB.select('extra_cashboxes', { eq: { is_active: true }, order: { column: 'name' } });
 
+    // ✅ رصيد سالب/صفر يجعل max<=0 فيمنع أي إدخال — نعرض الحالة بدل تعطيل الحقل
+    const owed = Number(customer.balance || 0);
+    const hasDebt = owed > 0;
+
     const bodyHtml = `
       <div style="padding:12px;background:rgba(239,68,68,0.08);border-radius:10px;margin-bottom:12px;display:flex;justify-content:space-between;">
         <span>الدين الحالي:</span>
-        <strong>${window.App.money(customer.balance)}</strong>
+        <strong>${window.App.money(owed)}</strong>
       </div>
+
+      ${hasDebt ? '' : `
+      <div style="padding:12px;background:rgba(245,158,11,0.1);border:1px solid rgba(245,158,11,0.3);border-radius:10px;margin-bottom:12px;font-size:13px;color:var(--text-2);">
+        ⚠️ لا يوجد دين مستحق لهذا العميل — لا يمكن تسجيل سداد جديد.
+      </div>`}
 
       <div class="input-group">
         <label>المبلغ المستلم *</label>
-        <input type="number" id="pay-amount" min="0.01" max="${customer.balance}" step="0.01" value="${customer.balance}">
+        <input type="number" id="pay-amount" min="0.01" ${hasDebt ? `max="${owed}" value="${owed}"` : 'value=""'} step="0.01">
       </div>
 
       <div class="input-group">
@@ -1384,7 +1407,7 @@ async function openCustomerPayment(customerId) {
 
     window.App.openModal(`💰 سداد دفعة - ${window.App.escapeHtml(customer.name)}`, bodyHtml, `
       <button class="btn btn-ghost" onclick="window.App.closeModal()">إلغاء</button>
-      <button class="btn btn-success" id="confirm-pay-btn" data-customer-id="${customerId}">${window.App.icons.check} تأكيد السداد</button>
+      <button class="btn btn-success" id="confirm-pay-btn" data-customer-id="${customerId}" ${hasDebt ? '' : 'disabled'}>${window.App.icons.check} تأكيد السداد</button>
     `);
 
     const typeSel = document.getElementById('pay-type');
@@ -1406,6 +1429,7 @@ async function openCustomerPayment(customerId) {
         const extraBoxId = document.getElementById('pay-extra-box')?.value;
 
         if (!amount || amount <= 0) throw new Error('المبلغ غير صحيح');
+        if (hasDebt && amount > owed) throw new Error(`المبلغ أكبر من الدين (${window.App.formatCurrency(owed)})`);
 
         const { error } = await window.SB.createCustomerPayment(customerId, amount, type, {
           description: desc, bank_ref: bankRef, extra_box_id: extraBoxId
@@ -1514,6 +1538,326 @@ async function openCustomerAdvancePayment(customerId) {
         if (error) throw new Error(error);
 
         window.App.showToast(`تم استلام دفعة مقدمة: ${window.App.formatCurrency(amount)}`, 'success');
+        window.App.closeModal();
+        await loadCustomersList();
+      } catch (err) {
+        window.App.showToast(err.message, 'error');
+      } finally {
+        unlock();
+      }
+    });
+  } catch (err) {
+    window.App.showToast(err.message, 'error');
+  }
+}
+
+/* ✅ سحب من رصيد العميل */
+async function openCustomerWithdrawal(customerId) {
+  try {
+    const { data: customer } = await window.SB.getById('customers', customerId);
+    if (!customer) throw new Error('العميل غير موجود');
+
+    if (Number(customer.balance) >= 0) {
+  window.App.showToast('لا يوجد رصيد متاح للسحب من هذا العميل', 'warning');
+  return;
+}
+
+    const { data: extraBoxes } = await window.SB.select('extra_cashboxes', {
+      eq: { is_active: true }, order: { column: 'name' }
+    });
+
+    const bodyHtml = `
+      <div style="padding:12px;background:rgba(245,158,11,0.08);border-radius:10px;margin-bottom:12px;">
+        <div style="display:flex;justify-content:space-between;margin-bottom:6px;">
+          <span>العميل:</span>
+          <strong>${window.App.escapeHtml(customer.name)}</strong>
+        </div>
+        <div style="display:flex;justify-content:space-between;">
+          <span>الرصيد المتاح:</span>
+          <strong style="color:var(--accent);">${window.App.money(customer.balance)}</strong>
+        </div>
+      </div>
+
+      <div class="input-group">
+        <label>مبلغ السحب *</label>
+        <input type="number" id="wd-amount" min="0.01" max="${Math.abs(Number(customer.balance || 0))}" step="0.01" value="" placeholder="0">
+      </div>
+
+      <div class="input-group">
+        <label>السبب *</label>
+        <select id="wd-reason-select">
+          <option value="">— اختر —</option>
+          <option value="ترحيل">ترحيل</option>
+          <option value="خدمة">خدمة</option>
+          <option value="استرجاع">استرجاع</option>
+          <option value="تسوية">تسوية</option>
+          <option value="other">أخرى (اكتب السبب)</option>
+        </select>
+      </div>
+
+      <div class="input-group hidden" id="wd-custom-reason-wrap">
+        <label>اكتب السبب *</label>
+        <input type="text" id="wd-custom-reason" placeholder="مثال: مصاريف نقل، عمولة..." maxlength="200">
+      </div>
+
+      <div class="input-group">
+        <label>طريقة الصرف *</label>
+        <select id="wd-type">
+          <option value="cash">كاش (من خزنة الكاش)</option>
+          <option value="bank">بنك (من خزنة البنك)</option>
+          ${extraBoxes.length > 0 ? `<option value="extra_box">خزنة أخرى</option>` : ''}
+        </select>
+      </div>
+
+      <div class="input-group hidden" id="wd-extra-box-wrap">
+        <label>اختر الخزنة</label>
+        <select id="wd-extra-box">
+          ${extraBoxes.map(b => `<option value="${b.id}">${window.App.escapeHtml(b.name)} (${window.App.formatCurrency(b.balance)})</option>`).join('')}
+        </select>
+      </div>
+
+      <div class="input-group hidden" id="wd-bank-ref-wrap">
+        <label>رقم العملية البنكية</label>
+        <input type="text" id="wd-bank-ref" placeholder="اختياري">
+      </div>
+
+      <div class="input-group">
+        <label>ملاحظات إضافية</label>
+        <textarea id="wd-notes" rows="2" placeholder="ملاحظات..."></textarea>
+      </div>
+
+      <div style="padding:12px;background:rgba(239,68,68,0.08);border-radius:10px;font-size:12.5px;color:var(--text-2);">
+        ⚠️ بعد السحب:
+        <ul style="margin:8px 20px 0 0;padding:0;">
+          <li>رصيد العميل: <strong style="color:var(--danger);">ينقص</strong> بمقدار السحب</li>
+          <li>الخزنة: <strong style="color:var(--danger);">تنقص</strong> بمقدار السحب</li>
+        </ul>
+      </div>
+    `;
+
+    window.App.openModal(`💸 سحب من رصيد - ${window.App.escapeHtml(customer.name)}`, bodyHtml, `
+      <button class="btn btn-ghost" onclick="window.App.closeModal()">إلغاء</button>
+      <button class="btn btn-warning" id="confirm-wd-btn">${window.App.icons.check} تأكيد السحب</button>
+    `);
+
+    // ربط الأحداث
+    const typeSel = document.getElementById('wd-type');
+    const reasonSel = document.getElementById('wd-reason-select');
+
+    typeSel.addEventListener('change', () => {
+      document.getElementById('wd-extra-box-wrap').classList.toggle('hidden', typeSel.value !== 'extra_box');
+      document.getElementById('wd-bank-ref-wrap').classList.toggle('hidden', typeSel.value !== 'bank');
+    });
+
+    reasonSel.addEventListener('change', () => {
+      document.getElementById('wd-custom-reason-wrap').classList.toggle('hidden', reasonSel.value !== 'other');
+    });
+
+    document.getElementById('confirm-wd-btn').addEventListener('click', async (e) => {
+      const btn = e.currentTarget;
+      if (btn.dataset.processing === 'true') return;
+      const unlock = window.App.lockProcessing(btn, 'جاري السحب...');
+
+      try {
+        const amount = Number(document.getElementById('wd-amount').value);
+        const type = typeSel.value;
+        const reasonSelVal = reasonSel.value;
+        const customReason = document.getElementById('wd-custom-reason').value.trim();
+        const notes = document.getElementById('wd-notes').value.trim();
+        const bankRef = document.getElementById('wd-bank-ref')?.value.trim();
+        const extraBoxId = document.getElementById('wd-extra-box')?.value;
+
+        // ✅ تحديد السبب النهائي
+        if (!reasonSelVal) throw new Error('يجب اختيار السبب');
+        
+        let finalReason = '';
+        if (reasonSelVal === 'other') {
+          if (!customReason) throw new Error('يجب كتابة السبب');
+          finalReason = customReason;
+        } else {
+          finalReason = reasonSelVal;
+        }
+        if (notes) finalReason += ` - ${notes}`;
+
+        if (!amount || amount <= 0) throw new Error('المبلغ غير صحيح');
+        // ✅ المتاح للسحب = القيمة المطلقة للرصيد (نفس قاعدة الخادم)
+        //    المقارنة بالرصيد السالب كانت ترفض كل مبلغ موجباً
+        const availableWd = Math.abs(Number(customer.balance || 0));
+        if (amount > availableWd) throw new Error(`المبلغ أكبر من الرصيد المتاح (${availableWd})`);
+
+        const { error } = await window.SB.createCustomerWithdrawal(customerId, amount, type, {
+          reason: finalReason,
+          bank_ref: bankRef,
+          extra_box_id: extraBoxId
+        });
+        if (error) throw new Error(error);
+
+        window.App.showToast(`تم سحب ${window.App.formatCurrency(amount)} من رصيد العميل`, 'success');
+        window.App.closeModal();
+        await loadCustomersList();
+      } catch (err) {
+        window.App.showToast(err.message, 'error');
+      } finally {
+        unlock();
+      }
+    });
+  } catch (err) {
+    window.App.showToast(err.message, 'error');
+  }
+}
+
+/* ✅ تسجيل خدمة على العميل */
+async function openCustomerService(customerId) {
+  try {
+    const { data: customer } = await window.SB.getById('customers', customerId);
+    if (!customer) throw new Error('العميل غير موجود');
+
+    const { data: extraBoxes } = await window.SB.select('extra_cashboxes', {
+      eq: { is_active: true }, order: { column: 'name' }
+    });
+
+    const currentBalance = Number(customer.balance || 0);
+    const balanceLabel = currentBalance > 0
+      ? 'العميل مدين لنا'
+      : currentBalance < 0
+        ? 'العميل له عندنا'
+        : 'الرصيد صفر';
+
+    const bodyHtml = `
+      <div style="padding:12px;background:rgba(59,130,246,0.08);border-radius:10px;margin-bottom:12px;">
+        <div style="display:flex;justify-content:space-between;margin-bottom:6px;">
+          <span>العميل:</span>
+          <strong>${window.App.escapeHtml(customer.name)}</strong>
+        </div>
+        <div style="display:flex;justify-content:space-between;margin-bottom:6px;">
+          <span>الرصيد الحالي:</span>
+          <strong style="color:${currentBalance > 0 ? 'var(--danger)' : currentBalance < 0 ? 'var(--info)' : 'var(--text)'};">
+            ${window.App.money(currentBalance)}
+          </strong>
+        </div>
+        <div style="display:flex;justify-content:space-between;">
+          <span>الحالة:</span>
+          <strong style="font-size:12.5px;color:var(--text-3);">${balanceLabel}</strong>
+        </div>
+      </div>
+
+      <div class="input-group">
+        <label>نوع الخدمة *</label>
+        <input type="text" id="svc-type" list="svc-types" placeholder="مثال: ترحيل، صيانة، نقل، استشارة">
+        <datalist id="svc-types">
+          <option value="ترحيل">
+          <option value="صيانة">
+          <option value="نقل">
+          <option value="شحن">
+          <option value="صرافة">
+          <option value="استشارة">
+          <option value="تسويق">
+          <option value="تعبئة">
+          <option value="تغليف">
+        </datalist>
+      </div>
+
+      <div class="input-group">
+        <label>المبلغ *</label>
+        <input type="number" id="svc-amount" min="0.01" step="0.01" value="0" placeholder="0">
+      </div>
+
+      <div class="input-group">
+        <label>الخزنة *</label>
+        <select id="svc-cashbox">
+          <option value="cash">كاش (خزنة الكاش)</option>
+          <option value="bank">بنك (خزنة البنك)</option>
+          ${extraBoxes.length > 0 ? `<option value="extra_box">خزنة أخرى</option>` : ''}
+        </select>
+      </div>
+
+      <div class="input-group hidden" id="svc-extra-box-wrap">
+        <label>اختر الخزنة</label>
+        <select id="svc-extra-box">
+          ${extraBoxes.map(b => `<option value="${b.id}">${window.App.escapeHtml(b.name)} (${window.App.formatCurrency(b.balance)})</option>`).join('')}
+        </select>
+      </div>
+
+      <div class="input-group">
+        <label>التاريخ *</label>
+        <input type="date" id="svc-date" value="${window.App.todayISO()}">
+      </div>
+
+      <div class="input-group">
+        <label>ملاحظات</label>
+        <textarea id="svc-notes" rows="2" placeholder="ملاحظات إضافية..."></textarea>
+      </div>
+
+      <div id="svc-preview" style="padding:12px;background:rgba(245,158,11,0.08);border-radius:10px;margin-top:12px;font-size:12.5px;">
+        <div style="display:flex;justify-content:space-between;margin-bottom:4px;">
+          <span style="color:var(--text-2);">الرصيد الحالي:</span>
+          <strong>${window.App.money(currentBalance)}</strong>
+        </div>
+        <div style="display:flex;justify-content:space-between;margin-bottom:4px;">
+          <span style="color:var(--text-2);">قيمة الخدمة:</span>
+          <strong id="svc-preview-amount">${window.App.formatCurrency(0)}</strong>
+        </div>
+        <div style="display:flex;justify-content:space-between;padding-top:6px;border-top:1px solid var(--border);">
+          <span style="font-weight:700;">الرصيد بعد:</span>
+          <strong id="svc-preview-after">${window.App.money(currentBalance)}</strong>
+        </div>
+      </div>
+
+      <div style="padding:10px;background:rgba(6,182,212,0.08);border-radius:10px;font-size:12px;color:var(--text-2);margin-top:8px;">
+        ℹ️ الخدمة ستخصم من الخزنة المختارة، ورصيد العميل سيتأثر حسب حالته.
+      </div>
+    `;
+
+    window.App.openModal(`📋 تسجيل خدمة - ${window.App.escapeHtml(customer.name)}`, bodyHtml, `
+      <button class="btn btn-ghost" onclick="window.App.closeModal()">إلغاء</button>
+      <button class="btn btn-primary" id="confirm-svc-btn">${window.App.icons.check} تأكيد الخدمة</button>
+    `);
+
+    // ربط الأحداث
+    const cashboxSel = document.getElementById('svc-cashbox');
+    cashboxSel.addEventListener('change', () => {
+      document.getElementById('svc-extra-box-wrap').classList.toggle('hidden', cashboxSel.value !== 'extra_box');
+    });
+
+    const amountInput = document.getElementById('svc-amount');
+    amountInput.addEventListener('input', () => {
+      const amt = Number(amountInput.value) || 0;
+      const after = currentBalance + amt;
+      const amountEl = document.getElementById('svc-preview-amount');
+      const afterEl = document.getElementById('svc-preview-after');
+      if (amountEl) amountEl.textContent = window.App.formatCurrency(amt);
+      if (afterEl) {
+        afterEl.textContent = window.App.money(after);
+        afterEl.style.color = after > 0 ? 'var(--danger)' : after < 0 ? 'var(--info)' : 'var(--text)';
+      }
+    });
+
+    document.getElementById('confirm-svc-btn').addEventListener('click', async (e) => {
+      const btn = e.currentTarget;
+      if (btn.dataset.processing === 'true') return;
+      const unlock = window.App.lockProcessing(btn, 'جاري الحفظ...');
+
+      try {
+        const serviceType = document.getElementById('svc-type').value.trim();
+        const amount = Number(amountInput.value);
+        const cashboxType = cashboxSel.value;
+        const serviceDate = document.getElementById('svc-date').value;
+        const notes = document.getElementById('svc-notes').value.trim();
+        const cashboxId = document.getElementById('svc-extra-box')?.value || null;
+
+        if (!serviceType) throw new Error('نوع الخدمة مطلوب');
+        if (!amount || amount <= 0) throw new Error('المبلغ غير صحيح');
+        if (!serviceDate) throw new Error('التاريخ مطلوب');
+
+        const { error } = await window.SB.createCustomerService(customerId, amount, serviceType, {
+          cashbox_type: cashboxType,
+          cashbox_id: cashboxId,
+          service_date: serviceDate,
+          notes: notes
+        });
+        if (error) throw new Error(error);
+
+        window.App.showToast(`تم تسجيل خدمة: ${serviceType} بمبلغ ${window.App.formatCurrency(amount)}`, 'success');
         window.App.closeModal();
         await loadCustomersList();
       } catch (err) {
@@ -1716,7 +2060,7 @@ async function openSupplierPayment(supplierId) {
 
       <div class="input-group">
         <label>المبلغ المدفوع *</label>
-        <input type="number" id="sup-pay-amount" min="0.01" max="${supplier.balance}" step="0.01" value="${supplier.balance}">
+        <input type="number" id="sup-pay-amount" min="0.01" ${Number(supplier.balance || 0) > 0 ? `max="${Number(supplier.balance)}" value="${Number(supplier.balance)}"` : 'value=""'} step="0.01">
       </div>
 
       <div class="input-group">
@@ -1854,10 +2198,10 @@ async function renderWarehouse(container) {
                 </div>
 
                 <div style="display:flex;gap:8px;flex-wrap:wrap;">
-                  <button class="btn btn-success" onclick="openApproveWarehouseOrder('${order.id}', '${window.App.escapeHtml(order.invoice_number)}')">
+                  <button class="btn btn-success" onclick="openApproveWarehouseOrder('${order.id}')">
                     ${window.App.icons.check} موافقة
                   </button>
-                  <button class="btn btn-danger" onclick="openRejectWarehouseOrder('${order.id}', '${window.App.escapeHtml(order.invoice_number)}')">
+                  <button class="btn btn-danger" onclick="openRejectWarehouseOrder('${order.id}')">
                     ${window.App.icons.close} رفض
                   </button>
                   <button class="btn btn-ghost" onclick="viewSaleDetails('${order.id}')">
@@ -1951,6 +2295,10 @@ async function loadOrderItems(saleId) {
 }
 
 async function openApproveWarehouseOrder(saleId, invoiceNumber) {
+  if (invoiceNumber === undefined) {
+    const { data: sRow } = await window.SB.getById('sales', saleId).catch(() => ({ data: null }));
+    invoiceNumber = sRow?.invoice_number || saleId;
+  }
   const bodyHtml = `
     <div style="padding:16px;background:rgba(16,185,129,0.08);border-radius:12px;margin-bottom:16px;">
       <div style="font-size:14px;color:var(--text-2);">
@@ -2002,6 +2350,10 @@ async function openApproveWarehouseOrder(saleId, invoiceNumber) {
 }
 
 async function openRejectWarehouseOrder(saleId, invoiceNumber) {
+  if (invoiceNumber === undefined) {
+    const { data: sRow } = await window.SB.getById('sales', saleId).catch(() => ({ data: null }));
+    invoiceNumber = sRow?.invoice_number || saleId;
+  }
   const bodyHtml = `
     <div style="padding:16px;background:rgba(239,68,68,0.08);border-radius:12px;margin-bottom:16px;">
       <div style="font-size:14px;color:var(--text-2);">
@@ -2913,6 +3265,8 @@ window.Modules = {
   openRejectWarehouseOrder,
   openCustomerPayment,
   openCustomerAdvancePayment,  // ✅ جديد
+  openCustomerWithdrawal,  // ✅ سحب من رصيد العميل
+    openCustomerService,
   openCustomerStatement: viewCustomerStatement
 };
 
