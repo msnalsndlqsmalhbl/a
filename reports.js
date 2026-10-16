@@ -13,6 +13,7 @@ const REPORTS_LIST = [
   { key: 'sales',           title: 'تقرير المبيعات',        desc: 'فواتير المبيعات حسب الفترة', icon: 'cart',     color: 'blue' },
   { key: 'returns',         title: 'تقرير المرتجعات',       desc: 'مرتجعات المبيعات',           icon: 'rotate',   color: 'gold' },
   { key: 'customers',       title: 'تقرير العملاء',         desc: 'أرصدة العملاء والمبيعات',    icon: 'users',    color: 'green' },
+  { key: 'customer_services', title: 'تقرير خدمات العملاء',  desc: 'الخدمات المقدمة للعملاء',    icon: 'box',      color: 'purple' },
   { key: 'suppliers',       title: 'تقرير الموردين',        desc: 'بيانات الموردين والأرصدة',   icon: 'truck',    color: 'cyan' },
   { key: 'warehouse',       title: 'تقرير المخزن',          desc: 'الأرصدة والحركات',           icon: 'box',      color: 'purple' },
   { key: 'treasury',        title: 'تقرير الخزنة',          desc: 'حركات الكاش والبنك',         icon: 'wallet',   color: 'gold' },
@@ -67,6 +68,7 @@ async function openReport(key) {
       sales:           renderSalesReport,
       returns:         renderReturnsReport,
       customers:       renderCustomersReport,
+      customer_services: renderCustomerServicesReport,
       suppliers:       renderSuppliersReport,
       warehouse:       renderWarehouseReport,
       treasury:        renderTreasuryReport,
@@ -136,11 +138,19 @@ function periodSelector(idPrefix, defaultMode = 'month') {
 }
 
 /**
+ * ✅ A-04: سجل الوضع النشط لكل تقرير.
+ * كان كل تصدير يستخدم 'month' مُثبَّتًا بغضّ النظر عن الفترة المختارة على الشاشة،
+ * فكان المستخدم يحصل على بيانات الشهر كاملًا وهو يظنها يومًا محددًا.
+ */
+const REPORT_MODES = {};   // idPrefix -> 'day' | 'week' | 'month' | 'custom'
+
+/**
  * تهيئة شريط الفترة (يُستدعى بعد إدخال HTML)
  */
 function initPeriodSelector(idPrefix, onFilter) {
   const tabs = document.querySelectorAll(`.report-mode-tabs[data-prefix="${idPrefix}"] .report-mode-tab`);
-  const state = { mode: 'month' };
+  const state = { mode: REPORT_MODES[idPrefix] || 'month' };
+  REPORT_MODES[idPrefix] = state.mode;
 
   const updateVisibility = () => {
     ['day', 'week', 'month'].forEach(m => {
@@ -155,6 +165,7 @@ function initPeriodSelector(idPrefix, onFilter) {
       tabs.forEach(t => t.classList.remove('active'));
       tab.classList.add('active');
       state.mode = tab.dataset.mode;
+      REPORT_MODES[idPrefix] = state.mode;   // ✅ يتتبّع التصدير لنفس الوضع
       updateVisibility();
     });
   });
@@ -165,6 +176,13 @@ function initPeriodSelector(idPrefix, onFilter) {
   document.getElementById(`${idPrefix}-print`)?.addEventListener('click', () => window.print());
 
   return state;
+}
+
+/**
+ * ✅ الفترة الفعلية المعروضة الآن — تُستخدم في كل دوال التصدير
+ */
+function currentPeriod(idPrefix) {
+  return REPORT_MODES[idPrefix] || 'month';
 }
 
 /**
@@ -186,15 +204,15 @@ function getDateRange(idPrefix, mode) {
     start.setDate(d.getDate() - dayOfWeek);
     const end = new Date(start);
     end.setDate(start.getDate() + 6);
-    from = start.toISOString().split('T')[0];
-    to = end.toISOString().split('T')[0];
+    from = localISO(start);
+    to = localISO(end);
   } else if (mode === 'month') {
     const monthStr = document.getElementById(`${idPrefix}-month`)?.value || today.slice(0, 7);
     const [y, m] = monthStr.split('-').map(Number);
     const start = new Date(y, m - 1, 1);
     const end = new Date(y, m, 0);
-    from = start.toISOString().split('T')[0];
-    to = end.toISOString().split('T')[0];
+    from = localISO(start);
+    to = localISO(end);
   } else {
     from = document.getElementById(`${idPrefix}-from`)?.value;
     to = document.getElementById(`${idPrefix}-to`)?.value;
@@ -337,7 +355,7 @@ async function loadSalesReport(mode = 'month') {
 }
 
 async function exportSalesReport() {
-  const { from, to } = getDateRange('rep-sales', 'month');
+  const { from, to } = getDateRange('rep-sales', currentPeriod('rep-sales'));
   const opts = { select: '*, customers(name)', order: { column: 'created_at', ascending: false } };
   if (from) opts.gte = { created_at: from };
   if (to) opts.lte = { created_at: to + 'T23:59:59' };
@@ -454,7 +472,7 @@ async function loadReturnsReport(mode = 'month') {
 }
 
 async function exportReturnsReport() {
-  const { from, to } = getDateRange('rep-ret', 'month');
+  const { from, to } = getDateRange('rep-ret', currentPeriod('rep-ret'));
   const opts = { select: '*, customers(name), sales(invoice_number)' };
   if (from) opts.gte = { created_at: from };
   if (to) opts.lte = { created_at: to + 'T23:59:59' };
@@ -477,16 +495,59 @@ async function renderCustomersReport(container) {
   `;
 
   const state = initPeriodSelector('rep-cust', loadCustomersReport);
-  document.getElementById('rep-cust-excel')?.addEventListener('click', () => {
-    window.SB.select('customers', { order: { column: 'name' } }).then(({ data }) => {
-      const rows = [['الاسم', 'الهاتف', 'العنوان', 'الرصيد'],
-        ...data.map(c => [c.name, c.phone || '', c.address || '', c.balance])];
+  document.getElementById('rep-cust-excel')?.addEventListener('click', async () => {
+    try {
+      const { from, to } = getDateRange('rep-cust', currentPeriod('rep-cust'));
+      const { results } = await buildCustomerReportData(from, to);
+      // ✅ التصدير يستخدم نفس معايير الشاشة (نفس الفترة ونفس الحساب)
+      const rows = [['العميل', 'عدد الفواتير', 'إجمالي المبيعات', 'المحصّل', 'المتبقي', 'الرصيد الحالي'],
+        ...results.map(r => [
+          r.customer.name, r.count, r.total, r.paid, r.remaining, r.customer.balance
+        ])];
       window.Modules.downloadCSV(rows, 'customers-report');
-      window.App.showToast('تم التصدير', 'success');
-    });
+      window.App.showToast('تم التصدير بنفس فلاتر الشاشة', 'success');
+    } catch (err) {
+      window.App.showToast('فشل التصدير: ' + err.message, 'error');
+    }
   });
 
   await loadCustomersReport(state.mode);
+}
+
+/* ✅ بيانات تقرير العملاء — استعلامان مجمّعان بدل استعلام لكل عميل (N+1) */
+async function buildCustomerReportData(from, to) {
+  const { data: customers } = await window.SB.select('customers', { order: { column: 'name' } });
+
+  const salesOpts = { select: 'customer_id, total, paid_cash, paid_bank, remaining, status', eq: { status: 'approved' } };
+  if (from) salesOpts.gte = { created_at: from };
+  if (to) salesOpts.lte = { created_at: to + 'T23:59:59' };
+  const { data: periodSales } = await window.SB.select('sales', salesOpts);
+
+  const payOpts = { select: 'customer_id, amount' };
+  if (from) payOpts.gte = { created_at: from };
+  if (to) payOpts.lte = { created_at: to + 'T23:59:59' };
+  const { data: periodPayments } = await window.SB.select('customer_payments', payOpts);
+
+  const agg = {};
+  const ensure = (k) => (agg[k] = agg[k] || { total: 0, paid: 0, remaining: 0, count: 0 });
+
+  (periodSales || []).forEach(s => {
+    const a = ensure(s.customer_id);
+    a.total += Number(s.total);
+    a.paid += Number(s.paid_cash) + Number(s.paid_bank);
+    a.remaining += Number(s.remaining);
+    a.count++;
+  });
+  (periodPayments || []).forEach(p => {
+    ensure(p.customer_id).paid += Number(p.amount);
+  });
+
+  const results = (customers || []).map(c => {
+    const a = agg[c.id] || { total: 0, paid: 0, remaining: 0, count: 0 };
+    return { customer: c, total: a.total, paid: a.paid, remaining: a.remaining, count: a.count };
+  });
+
+  return { customers: customers || [], results };
 }
 
 async function loadCustomersReport(mode = 'month') {
@@ -496,27 +557,7 @@ async function loadCustomersReport(mode = 'month') {
 
     const { from, to, label } = getDateRange('rep-cust', mode);
 
-    const { data: customers } = await window.SB.select('customers', { order: { column: 'name' } });
-
-    const results = [];
-    for (const c of customers) {
-      const opts = { eq: { customer_id: c.id, status: 'approved' } };
-      if (from) opts.gte = { created_at: from };
-      if (to) opts.lte = { created_at: to + 'T23:59:59' };
-      const { data: sales } = await window.SB.select('sales', opts);
-      const total = sales.reduce((s, r) => s + Number(r.total), 0);
-      const paid = sales.reduce((s, r) => s + Number(r.paid_cash) + Number(r.paid_bank), 0);
-      const remaining = sales.reduce((s, r) => s + Number(r.remaining), 0);
-
-      // سدادات في نفس الفترة
-      const payOpts = { eq: { customer_id: c.id } };
-      if (from) payOpts.gte = { created_at: from };
-      if (to) payOpts.lte = { created_at: to + 'T23:59:59' };
-      const { data: payments } = await window.SB.select('customer_payments', payOpts);
-      const paidViaPayments = (payments || []).reduce((s, p) => s + Number(p.amount), 0);
-
-      results.push({ customer: c, total, paid: paid + paidViaPayments, remaining, count: sales.length });
-    }
+    const { customers, results } = await buildCustomerReportData(from, to);
 
     const grandTotal = results.reduce((s, r) => s + r.total, 0);
     const grandRemaining = results.reduce((s, r) => s + r.remaining, 0);
@@ -558,6 +599,149 @@ async function loadCustomersReport(mode = 'month') {
     `;
   } catch (err) {
     document.getElementById('rep-cust-body').innerHTML = `<div class="empty-state"><p>${window.App.escapeHtml(err.message)}</p></div>`;
+  }
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   تقرير خدمات العملاء
+   ═══════════════════════════════════════════════════════════════ */
+
+async function renderCustomerServicesReport(container) {
+  container.innerHTML = `
+    ${periodSelector('rep-svc')}
+    <div id="rep-svc-body"></div>
+  `;
+
+  const state = initPeriodSelector('rep-svc', loadCustomerServicesReport);
+  document.getElementById('rep-svc-excel')?.addEventListener('click', exportCustomerServicesReport);
+
+  await loadCustomerServicesReport(state.mode);
+}
+
+async function loadCustomerServicesReport(mode = 'month') {
+  try {
+    const body = document.getElementById('rep-svc-body');
+    if (!body) return;
+    body.innerHTML = '<div class="skeleton skeleton-card" style="height:200px;"></div>';
+
+    const { from, to, label } = getDateRange('rep-svc', mode);
+
+    const opts = { 
+      select: '*, customers(name)', 
+      order: { column: 'service_date', ascending: false } 
+    };
+    if (from) opts.gte = { service_date: from };
+    if (to) opts.lte = { service_date: to };
+
+    const { data: services } = await window.SB.select('customer_services', opts);
+
+    const total = services.reduce((s, r) => s + Number(r.amount), 0);
+    const count = services.length;
+    const biggest = services.length > 0 ? Math.max(...services.map(s => Number(s.amount))) : 0;
+    const average = count > 0 ? total / count : 0;
+
+    const byType = {};
+    services.forEach(s => {
+      byType[s.service_type] = (byType[s.service_type] || 0) + Number(s.amount);
+    });
+
+    body.innerHTML = `
+      <div style="margin-bottom:12px;padding:8px 14px;background:rgba(139,92,246,0.1);border-radius:10px;font-size:13px;color:var(--text-2);text-align:center;">
+        📅 ${label}
+      </div>
+
+      <div class="kpi-grid">
+        ${window.Modules.kpiCard('إجمالي الخدمات', window.App.formatCurrency(total), 'box', 'purple')}
+        ${window.Modules.kpiCard('عدد العمليات', window.App.formatNumber(count), 'activity', 'blue')}
+        ${window.Modules.kpiCard('أكبر عملية', window.App.formatCurrency(biggest), 'chart', 'gold')}
+        ${window.Modules.kpiCard('متوسط الخدمة', window.App.formatCurrency(average), 'money', 'green')}
+      </div>
+
+      ${Object.keys(byType).length > 0 ? `
+        <div class="card" style="margin-bottom:20px;">
+          <div class="card-header"><div class="card-title">${window.App.icons.chart} توزيع حسب نوع الخدمة</div></div>
+          <div class="table-wrap" style="background:transparent;border:none;">
+            <table>
+              <thead><tr><th>النوع</th><th>الإجمالي</th><th>النسبة</th></tr></thead>
+              <tbody>
+                ${Object.entries(byType).sort((a, b) => b[1] - a[1]).map(([type, amt]) => `
+                  <tr>
+                    <td>${window.App.escapeHtml(type)}</td>
+                    <td>${window.App.formatCurrency(amt)}</td>
+                    <td>${total > 0 ? ((amt / total) * 100).toFixed(1) : 0}%</td>
+                  </tr>`).join('')}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      ` : ''}
+
+      <div class="card">
+        <div class="card-header"><div class="card-title">${window.App.icons.box} كل الخدمات</div></div>
+        <div class="table-wrap" style="background:transparent;border:none;">
+          <table class="responsive">
+            <thead>
+              <tr>
+                <th>التاريخ</th>
+                <th>العميل</th>
+                <th>نوع الخدمة</th>
+                <th>المبلغ</th>
+                <th>الخزنة</th>
+                <th>الرصيد قبل</th>
+                <th>الرصيد بعد</th>
+                <th>ملاحظات</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${services.length === 0 ? '<tr><td colspan="8" style="text-align:center;padding:30px;color:var(--text-3);">لا توجد خدمات في هذه الفترة</td></tr>' :
+                services.map(s => `
+                  <tr>
+                    <td data-label="التاريخ">${window.App.formatDate(s.service_date || s.created_at)}</td>
+                    <td data-label="العميل"><strong>${window.App.escapeHtml(s.customers?.name || '—')}</strong></td>
+                    <td data-label="نوع الخدمة"><span class="badge badge-primary">${window.App.escapeHtml(s.service_type)}</span></td>
+                    <td data-label="المبلغ">${window.App.formatCurrency(s.amount)}</td>
+                    <td data-label="الخزنة">${s.cashbox_type === 'cash' ? 'كاش' : s.cashbox_type === 'bank' ? 'بنك' : 'خزنة أخرى'}</td>
+                    <td data-label="الرصيد قبل">${window.App.money(s.balance_before)}</td>
+                    <td data-label="الرصيد بعد">${window.App.money(s.balance_after)}</td>
+                    <td data-label="ملاحظات">${window.App.escapeHtml(s.notes || '—')}</td>
+                  </tr>`).join('')}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    `;
+  } catch (err) {
+    const body = document.getElementById('rep-svc-body');
+    if (body) body.innerHTML = `<div class="empty-state"><p>${window.App.escapeHtml(err.message)}</p></div>`;
+  }
+}
+
+async function exportCustomerServicesReport() {
+  try {
+    const { from, to } = getDateRange('rep-svc', currentPeriod('rep-svc'));
+    const opts = { select: '*, customers(name)', order: { column: 'service_date', ascending: false } };
+    if (from) opts.gte = { service_date: from };
+    if (to) opts.lte = { service_date: to };
+
+    const { data } = await window.SB.select('customer_services', opts);
+
+    const rows = [
+      ['التاريخ', 'العميل', 'نوع الخدمة', 'المبلغ', 'الخزنة', 'الرصيد قبل', 'الرصيد بعد', 'ملاحظات'],
+      ...data.map(s => [
+        s.service_date || s.created_at,
+        s.customers?.name || '',
+        s.service_type,
+        s.amount,
+        s.cashbox_type === 'cash' ? 'كاش' : s.cashbox_type === 'bank' ? 'بنك' : 'خزنة أخرى',
+        s.balance_before,
+        s.balance_after,
+        s.notes || ''
+      ])
+    ];
+    window.Modules.downloadCSV(rows, 'customer-services-report');
+    window.App.showToast('تم التصدير', 'success');
+  } catch (err) {
+    window.App.showToast(err.message, 'error');
   }
 }
 
@@ -656,13 +840,37 @@ async function renderWarehouseReport(container) {
   `;
 
   const state = initPeriodSelector('rep-wh', loadWarehouseReport);
-  document.getElementById('rep-wh-excel')?.addEventListener('click', () => {
-    window.SB.select('products', { order: { column: 'name' } }).then(({ data }) => {
-      const rows = [['الاسم', 'النوع', 'الوحدة', 'الكمية', 'الحد الأدنى', 'التكلفة', 'سعر البيع', 'القيمة'],
-        ...data.map(p => [p.name, p.type || '', p.unit || '', p.quantity, p.min_quantity, p.cost_price, p.sale_price, p.quantity * p.cost_price])];
+  document.getElementById('rep-wh-excel')?.addEventListener('click', async () => {
+    try {
+      // ✅ نفس فلاتر الشاشة: كل المنتجات + حركات الفترة نفسها
+      const { from, to } = getDateRange('rep-wh', currentPeriod('rep-wh'));
+      const movOpts = {};
+      if (from) movOpts.gte = { created_at: from };
+      if (to) movOpts.lte = { created_at: to + 'T23:59:59' };
+
+      const [{ data: products }, { data: movements }] = await Promise.all([
+        window.SB.select('products', { order: { column: 'name' } }),
+        window.SB.select('warehouse_transactions', movOpts)
+      ]);
+
+      const movByProduct = {};
+      (movements || []).forEach(m => {
+        movByProduct[m.product_id] = movByProduct[m.product_id] || { in: 0, out: 0 };
+        if (m.type === 'in') movByProduct[m.product_id].in += Number(m.quantity);
+        else movByProduct[m.product_id].out += Number(m.quantity);
+      });
+
+      const rows = [['الاسم', 'النوع', 'الوحدة', 'الكمية', 'الحد الأدنى', 'التكلفة', 'سعر البيع', 'القيمة', 'وارد الفترة', 'صادر الفترة'],
+        ...(products || []).map(p => [
+          p.name, p.type || '', p.unit || '', p.quantity, p.min_quantity, p.cost_price, p.sale_price,
+          p.quantity * p.cost_price,
+          movByProduct[p.id]?.in || 0, movByProduct[p.id]?.out || 0
+        ])];
       window.Modules.downloadCSV(rows, 'warehouse-report');
-      window.App.showToast('تم التصدير', 'success');
-    });
+      window.App.showToast('تم التصدير بنفس فلاتر الشاشة', 'success');
+    } catch (err) {
+      window.App.showToast('فشل التصدير: ' + err.message, 'error');
+    }
   });
 
   await loadWarehouseReport(state.mode);
@@ -897,7 +1105,7 @@ async function loadTreasuryReport(mode = 'month') {
 }
 
 async function exportTreasuryReport() {
-  const { from, to } = getDateRange('rep-tre', 'month');
+  const { from, to } = getDateRange('rep-tre', currentPeriod('rep-tre'));
   const opts = { order: { column: 'created_at', ascending: false } };
   if (from) opts.gte = { created_at: from };
   if (to) opts.lte = { created_at: to + 'T23:59:59' };
@@ -1014,7 +1222,7 @@ async function loadExpensesReport(mode = 'month') {
 }
 
 async function exportExpensesReport() {
-  const { from, to } = getDateRange('rep-exp', 'month');
+  const { from, to } = getDateRange('rep-exp', currentPeriod('rep-exp'));
   const opts = {};
   if (from) opts.gte = { created_at: from };
   if (to) opts.lte = { created_at: to + 'T23:59:59' };
@@ -1119,7 +1327,7 @@ async function loadJournalReport(mode = 'month') {
 }
 
 async function exportJournalReport() {
-  const { from, to } = getDateRange('rep-jv', 'month');
+  const { from, to } = getDateRange('rep-jv', currentPeriod('rep-jv'));
   const opts = { order: { column: 'date', ascending: false } };
   if (from) opts.gte = { date: from };
   if (to) opts.lte = { date: to };
@@ -1208,7 +1416,7 @@ async function loadAuditReport(mode = 'month') {
 }
 
 async function exportAuditReport() {
-  const { from, to } = getDateRange('rep-aud', 'month');
+  const { from, to } = getDateRange('rep-aud', currentPeriod('rep-aud'));
   const opts = {};
   if (from) opts.gte = { created_at: from };
   if (to) opts.lte = { created_at: to + 'T23:59:59' };
@@ -1331,15 +1539,14 @@ async function loadFinancialReport(mode = 'month') {
     const { data: returns } = await window.SB.select('returns', retOpts);
     const returnsTotal = returns.reduce((s, r) => s + Number(r.total), 0);
 
-    // تكلفة المبيعات
+    // تكلفة المبيعات — استعلام مُجمَّع واحد بدل استعلام لكل فاتورة (N+1)
+    // مع دعم التكلفة المجمَّدة عند البيع عند توفّرها
     let costOfSales = 0;
-    for (const sale of sales) {
-      const { data: items } = await window.SB.select('sale_items', {
-        select: '*, products(cost_price)', eq: { sale_id: sale.id }
-      });
-      (items || []).forEach(i => {
-        costOfSales += Number(i.products?.cost_price || 0) * Number(i.quantity);
-      });
+    try {
+      costOfSales = await window.SB.getCostOfSales(sales.map(s => s.id));
+    } catch (costErr) {
+      console.error('❌ حساب تكلفة المبيعات:', costErr);
+      throw costErr;
     }
 
     const netRevenue = revenue - returnsTotal;
@@ -1451,7 +1658,7 @@ function finRow(label, value, color, bold = false) {
 }
 
 async function exportFinancialReport() {
-  const { from, to } = getDateRange('rep-fin', 'month');
+  const { from, to } = getDateRange('rep-fin', currentPeriod('rep-fin'));
 
   const salesOpts = { eq: { status: 'approved' } };
   if (from) salesOpts.gte = { created_at: from };
