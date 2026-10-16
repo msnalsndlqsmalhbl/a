@@ -1456,3 +1456,57 @@ span[style*="direction:ltr"],
 table td {
   unicode-bidi: plaintext;
 }
+/* ═══════════════════════════════════════════════════════════════
+   ✅ إصلاح محاذاة الأرقام والعملة (RTL Fix)
+   ═══════════════════════════════════════════════════════════════ */
+
+/* الأرقام في كل الجداول */
+table td,
+table th {
+  unicode-bidi: plaintext;
+  text-align: right;
+}
+
+/* أرقام العملة (مثل: 1,000,000 ج.س) */
+.money-value,
+[data-money] {
+  direction: ltr !important;
+  unicode-bidi: embed !important;
+  display: inline-block;
+}
+
+/* الأرقام في KPI Cards */
+.kpi-value {
+  direction: ltr !important;
+  unicode-bidi: embed !important;
+  display: inline-block;
+  text-align: center;
+}
+
+/* جدول آخر حركات الخزنة */
+.card table td:nth-child(2) {
+  direction: ltr !important;
+  unicode-bidi: embed !important;
+  text-align: right;
+}
+
+/* جدول آخر الفواتير */
+.card table td:nth-child(2) {
+  direction: ltr !important;
+  unicode-bidi: embed !important;
+  text-align: right;
+}
+
+/* الأرقام السالبة */
+.text-danger,
+.text-success {
+  direction: ltr !important;
+  unicode-bidi: embed !important;
+  display: inline-block;
+}
+
+/* الإجمالي في الرسوم */
+.treasury-total {
+  direction: ltr !important;
+  unicode-bidi: embed !important;
+}
